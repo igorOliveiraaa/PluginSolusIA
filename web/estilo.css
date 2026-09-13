@@ -6,16 +6,18 @@
 
 :root {
   /* o fundo precisa ter algo por trás, senão o vidro não tem o que borrar */
-  --fundo: #eceff5;
-  --brilho-1: rgba(15, 118, 110, .16);
-  --brilho-2: rgba(59, 130, 246, .13);
-  --brilho-3: rgba(20, 184, 166, .11);
+  --fundo: #eaeef6;
+  --brilho-1: rgba(15, 118, 110, .20);
+  --brilho-2: rgba(79, 70, 229, .17);
+  --brilho-3: rgba(20, 184, 166, .15);
+  --brilho-4: rgba(236, 72, 153, .10);
 
-  --vidro: rgba(255, 255, 255, .7);
+  --vidro: rgba(255, 255, 255, .68);
   --vidro-forte: rgba(255, 255, 255, .86);
   --vidro-borda: rgba(255, 255, 255, .75);
   --sombra: 0 8px 30px rgba(15, 23, 42, .07);
   --sombra-alta: 0 16px 46px rgba(15, 23, 42, .13);
+  --sombra-cor: 0 10px 30px rgba(15, 118, 110, .26);
 
   --texto: #0b1220;
   --texto-fraco: #69728a;
@@ -24,6 +26,16 @@
   --principal: #0f766e;
   --principal-claro: #14b8a6;
   --principal-escuro: #0c5d57;
+
+  /* cores de apoio: cada assunto da tela tem a sua, para nao ficar tudo verde */
+  --roxo: #4f46e5;
+  --roxo-fundo: rgba(79, 70, 229, .1);
+  --rosa: #db2777;
+  --rosa-fundo: rgba(219, 39, 119, .09);
+  --ambar: #b45309;
+  --ambar-fundo: rgba(245, 158, 11, .13);
+  --azul: #1d4ed8;
+  --azul-fundo: rgba(59, 130, 246, .1);
 
   --perigo: #d4183d;
   --perigo-fundo: rgba(212, 24, 61, .09);
@@ -58,16 +70,27 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* As manchas de cor por trás do vidro. Elas andam bem devagar: é o que faz o
+   fundo parecer vivo sem roubar a atenção de quem está trabalhando. */
 body::before {
   content: '';
   position: fixed;
-  inset: -25%;
+  inset: -30%;
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(40% 36% at 12% 8%, var(--brilho-1) 0%, transparent 62%),
-    radial-gradient(44% 38% at 88% 16%, var(--brilho-2) 0%, transparent 60%),
-    radial-gradient(48% 42% at 50% 98%, var(--brilho-3) 0%, transparent 62%);
+    radial-gradient(38% 34% at 12% 8%, var(--brilho-1) 0%, transparent 62%),
+    radial-gradient(42% 36% at 88% 14%, var(--brilho-2) 0%, transparent 60%),
+    radial-gradient(46% 40% at 50% 96%, var(--brilho-3) 0%, transparent 62%),
+    radial-gradient(34% 30% at 82% 72%, var(--brilho-4) 0%, transparent 58%);
+  animation: aurora 38s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes aurora {
+  0%   { transform: translate3d(0, 0, 0) scale(1); }
+  50%  { transform: translate3d(-2.5%, 1.5%, 0) scale(1.06); }
+  100% { transform: translate3d(2%, -2%, 0) scale(1.03); }
 }
 
 /* ---------------- ícones ---------------- */
@@ -86,10 +109,22 @@ body::before {
   z-index: 30;
   padding: 14px 16px 0;
   color: #fff;
-  background: linear-gradient(135deg, rgba(15, 118, 110, .93), rgba(12, 93, 87, .93));
+  /* três cores no lugar de uma: verde da marca passando por teal até o roxo */
+  background: linear-gradient(118deg,
+    rgba(12, 93, 87, .95) 0%,
+    rgba(15, 118, 110, .95) 34%,
+    rgba(20, 150, 160, .94) 66%,
+    rgba(67, 56, 202, .92) 100%);
+  background-size: 220% 100%;
+  animation: deslizarCor 22s ease-in-out infinite alternate;
   backdrop-filter: blur(22px) saturate(180%);
   -webkit-backdrop-filter: blur(22px) saturate(180%);
-  box-shadow: 0 4px 26px rgba(12, 93, 87, .2);
+  box-shadow: 0 4px 26px rgba(12, 93, 87, .22);
+}
+
+@keyframes deslizarCor {
+  from { background-position: 0% 50%; }
+  to   { background-position: 100% 50%; }
 }
 
 .topo-titulo {
@@ -139,9 +174,10 @@ body::before {
   content: '';
   position: absolute;
   left: 15px; right: 15px; bottom: 0;
-  height: 2.5px;
+  height: 3px;
   border-radius: 3px;
-  background: #fff;
+  background: linear-gradient(90deg, #fff, #a5f3fc 55%, #c7d2fe);
+  box-shadow: 0 0 12px rgba(255, 255, 255, .6);
   transform: scaleX(0);
   transition: transform .35s var(--mola);
 }
@@ -163,16 +199,30 @@ main { padding: 18px 16px; max-width: 920px; margin: 0 auto; }
 }
 
 .cartao {
+  position: relative;
+  overflow: hidden;
   background: var(--vidro);
-  backdrop-filter: blur(22px) saturate(180%);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(190%);
+  -webkit-backdrop-filter: blur(24px) saturate(190%);
   border: 1px solid var(--vidro-borda);
   border-radius: var(--raio);
   padding: 18px;
   margin-bottom: 14px;
   box-shadow: var(--sombra);
-  transition: box-shadow .3s var(--suave);
+  transition: box-shadow .3s var(--suave), transform .3s var(--suave);
 }
+
+/* fio de luz colorido no alto do vidro - é o que dá o acabamento de vidro real */
+.cartao::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 10%; right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent, rgba(20, 184, 166, .7), rgba(79, 70, 229, .55), transparent);
+}
+
+.cartao:hover { box-shadow: var(--sombra-alta); }
 
 .cartao h2 { margin: 0 0 6px; font-size: 17px; font-weight: 600; letter-spacing: -0.022em; }
 .ajuda { color: var(--texto-fraco); font-size: 14px; margin: 0 0 12px; }
@@ -280,15 +330,34 @@ main { padding: 18px 16px; max-width: 920px; margin: 0 auto; }
 }
 
 .botao.principal {
-  background: linear-gradient(135deg, var(--principal-claro), var(--principal));
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--principal-claro) 0%, var(--principal) 55%, #1e5fb4 100%);
+  background-size: 170% 170%;
+  background-position: 0% 50%;
   color: #fff;
-  box-shadow: 0 4px 14px rgba(15, 118, 110, .3);
+  box-shadow: var(--sombra-cor);
+  transition: transform .25s var(--mola), box-shadow .25s var(--suave), background-position .5s var(--suave);
+}
+
+/* o brilho que passa por cima quando o dedo/mouse chega */
+.botao.principal::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .35) 50%, transparent 70%);
+  transform: translateX(-120%);
+  transition: transform .7s var(--suave);
+  pointer-events: none;
 }
 
 .botao.principal:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 9px 24px rgba(15, 118, 110, .38);
+  background-position: 100% 50%;
+  box-shadow: 0 12px 30px rgba(15, 118, 110, .36), 0 4px 12px rgba(67, 56, 202, .22);
 }
+
+.botao.principal:hover:not(:disabled)::after { transform: translateX(120%); }
 
 .botao.principal:disabled {
   background: rgba(105, 114, 138, .32);
@@ -386,15 +455,17 @@ main { padding: 18px 16px; max-width: 920px; margin: 0 auto; }
   padding: 16px;
   margin-bottom: 12px;
   box-shadow: var(--sombra);
-  animation: entrar .35s var(--suave) backwards;
-  transition: box-shadow .3s var(--suave), border-color .3s var(--suave), opacity .3s;
+  transition: box-shadow .3s var(--suave), border-color .3s var(--suave),
+              opacity .3s, transform .3s var(--suave);
 }
 
 .item:hover { box-shadow: var(--sombra-alta); }
 .item.atencao { border-left-color: #f59e0b; }
 .item.novo { border-left-color: #3b82f6; }
 .item.problema { border-left-color: var(--perigo); }
-.item.ignorado { opacity: .45; }
+/* item tirado da lista: apagado, mas ainda legivel (e volta inteiro no hover) */
+.item.ignorado { opacity: .55; }
+.item.ignorado:hover, .item.ignorado:focus-within { opacity: 1; }
 
 .item-topo { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
 .item-nome { font-weight: 600; font-size: 15.5px; line-height: 1.35; letter-spacing: -0.014em; }
@@ -433,7 +504,8 @@ main { padding: 18px 16px; max-width: 920px; margin: 0 auto; }
 
 .comparacao {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* cabem 2 blocos no celular e ate 4 no PC, sem apertar */
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: 12px;
   background: rgba(255, 255, 255, .55);
   border-radius: var(--raio-p);
@@ -634,16 +706,22 @@ main { padding: 18px 16px; max-width: 920px; margin: 0 auto; }
   justify-content: center;
   padding: 20px;
   overflow-y: auto;
-  background: linear-gradient(150deg, #0f766e, #0c5d57 55%, #134e4a);
+  /* do verde da marca ao azul-noite, passando pelo roxo: dá profundidade
+     sem virar um fundo colorido demais para uma tela de trabalho */
+  background: linear-gradient(150deg, #0d6a63 0%, #0c5d57 32%, #134e4a 58%, #1e1b4b 100%);
 }
 
 .tela-login::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -20%;
   background:
-    radial-gradient(40% 34% at 18% 14%, rgba(20, 184, 166, .5) 0%, transparent 60%),
-    radial-gradient(44% 38% at 84% 82%, rgba(59, 130, 246, .34) 0%, transparent 62%);
+    radial-gradient(38% 32% at 18% 14%, rgba(20, 184, 166, .55) 0%, transparent 60%),
+    radial-gradient(42% 36% at 84% 80%, rgba(79, 70, 229, .45) 0%, transparent 62%),
+    radial-gradient(30% 26% at 70% 22%, rgba(56, 189, 248, .3) 0%, transparent 58%),
+    radial-gradient(26% 24% at 24% 78%, rgba(236, 72, 153, .22) 0%, transparent 58%);
+  animation: aurora 30s ease-in-out infinite alternate;
+  pointer-events: none;
 }
 
 .caixa-login {
@@ -756,6 +834,16 @@ body.travado { overflow: hidden; }
   transform: translateX(3px);
   box-shadow: 0 4px 14px rgba(15, 118, 110, .1);
 }
+
+/* a primeira opcao e a mais provavel: fica destacada para a escolha ser rapida */
+.opcao-produto.sugerida {
+  border-color: var(--principal-claro);
+  background: rgba(15, 118, 110, .06);
+}
+
+.opcao-produto .item-etiquetas,
+.resultado-busca .item-etiquetas { margin: 6px 0 2px; }
+.opcao-produto .ajuda { display: block; margin: 0; }
 
 .total-item { font-size: 17px; font-weight: 700; color: var(--principal); padding: 10px 0; }
 .total-rodape { display: flex; align-items: center; padding: 0 6px; }
@@ -1162,3 +1250,154 @@ textarea:focus-visible, select:focus-visible, summary:focus-visible {
 
 .caminho-manual { margin-top: 16px; font-size: 14px; }
 .caminho-manual summary { cursor: pointer; color: var(--principal); font-weight: 500; }
+
+/* ---------------- convite para instalar o app ---------------- */
+
+.faixa-instalar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  background: var(--vidro-forte);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border: 1px solid var(--vidro-borda);
+  border-left: 4px solid var(--principal-claro);
+  border-radius: var(--raio);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--sombra);
+  animation: entrar .4s var(--suave);
+}
+
+.instalar-texto { flex: 1 1 240px; font-size: 14px; line-height: 1.5; }
+.instalar-texto code {
+  background: rgba(15, 118, 110, .1);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  word-break: break-all;
+}
+.instalar-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.instalar-acoes .botao { padding: 10px 16px; font-size: 14px; }
+
+@media (max-width: 560px) {
+  .instalar-acoes { width: 100%; }
+  .instalar-acoes .botao { flex: 1; }
+}
+
+/* ============================================================
+   Acabamento: cor, vidro e movimento
+   ============================================================ */
+
+/* ---- entrada em cascata, SÓ na primeira montagem da lista ----
+   Antes o item tinha a animação sempre: a cada mudança de quantidade a lista
+   inteira piscava do transparente para o opaco, e dava impressão de tela
+   apagada/quebrada. Agora a animação só roda quando a lista aparece. */
+
+.entrando > .item,
+.entrando > .tarefa {
+  animation: entrarItem .42s var(--suave) backwards;
+}
+
+.entrando > :nth-child(1) { animation-delay: .02s; }
+.entrando > :nth-child(2) { animation-delay: .06s; }
+.entrando > :nth-child(3) { animation-delay: .10s; }
+.entrando > :nth-child(4) { animation-delay: .14s; }
+.entrando > :nth-child(5) { animation-delay: .18s; }
+.entrando > :nth-child(6) { animation-delay: .22s; }
+.entrando > :nth-child(7) { animation-delay: .26s; }
+.entrando > :nth-child(n+8) { animation-delay: .3s; }
+
+@keyframes entrarItem {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ---- os blocos de comparação, cada um com a sua cor ----
+   Ler quatro números cinzas iguais é cansativo; com cor a pessoa acha o que
+   quer sem ler o rótulo. */
+
+.comparacao {
+  background: linear-gradient(135deg, rgba(255, 255, 255, .62), rgba(255, 255, 255, .42));
+  border: 1px solid rgba(255, 255, 255, .6);
+}
+
+.comparacao-bloco {
+  position: relative;
+  padding-left: 10px;
+  border-left: 2.5px solid rgba(105, 114, 138, .22);
+}
+
+.comparacao-bloco:nth-child(1) { border-left-color: var(--principal-claro); }
+.comparacao-bloco:nth-child(2) { border-left-color: var(--roxo); }
+.comparacao-bloco:nth-child(3) { border-left-color: var(--azul); }
+.comparacao-bloco:nth-child(4) { border-left-color: var(--ambar); }
+
+.comparacao-bloco:nth-child(1) .comparacao-valor { color: var(--principal); }
+.comparacao-bloco:nth-child(2) .comparacao-valor { color: var(--roxo); }
+.comparacao-bloco:nth-child(3) .comparacao-valor { color: var(--azul); }
+.comparacao-bloco:nth-child(4) .comparacao-valor { color: var(--ambar); }
+
+/* ---- item: borda colorida mais viva e reação ao toque ---- */
+
+.item { border-left-width: 4px; }
+.item:hover { transform: translateY(-1px); }
+.item.atencao {
+  border-left-color: #f59e0b;
+  background: linear-gradient(135deg, rgba(255, 251, 235, .8), var(--vidro));
+}
+.item.novo {
+  border-left-color: var(--roxo);
+  background: linear-gradient(135deg, rgba(238, 242, 255, .8), var(--vidro));
+}
+.item.problema {
+  border-left-color: var(--perigo);
+  background: linear-gradient(135deg, rgba(254, 242, 242, .8), var(--vidro));
+}
+
+/* ---- opção sugerida: destaque de verdade ---- */
+
+.opcao-produto.sugerida {
+  background: linear-gradient(135deg, rgba(20, 184, 166, .1), rgba(79, 70, 229, .07));
+  border-color: rgba(20, 184, 166, .45);
+  box-shadow: 0 2px 10px rgba(15, 118, 110, .1);
+}
+
+.opcao-produto:active { transform: translateX(3px) scale(.995); }
+
+/* ---- etiquetas com um pouco mais de vida ---- */
+
+.etiqueta { transition: transform .2s var(--mola); }
+.etiqueta.info { background: var(--roxo-fundo); color: var(--roxo); }
+
+/* ---- botão secundário: vidro de verdade ---- */
+
+.botao.secundario:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(20, 184, 166, .45);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, .09);
+}
+
+/* ---- campo em foco com a cor do assunto ---- */
+
+.campo input:focus, .campo textarea:focus, .campo select:focus {
+  box-shadow: 0 0 0 4px rgba(20, 184, 166, .15), 0 0 0 1px rgba(79, 70, 229, .18);
+}
+
+/* ---- total do rodapé: número que salta ---- */
+
+.valor-total {
+  background: linear-gradient(100deg, var(--principal) 0%, #0e7490 45%, var(--roxo) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--principal);              /* reserva, se o navegador não recortar */
+}
+
+/* ---- respeitar quem pediu menos movimento ---- */
+
+@media (prefers-reduced-motion: reduce) {
+  body::before, .topo { animation: none !important; }
+  .botao.principal::after { display: none; }
+}

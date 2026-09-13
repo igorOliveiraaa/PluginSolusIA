@@ -16,7 +16,8 @@ rotasAssistente.post('/api/perguntar', exigirLogin, async (req, res) => {
     if (!pergunta) throw new Error('Escreva a pergunta.');
     if (pergunta.length > 2000) throw new Error('Pergunta muito longa.');
 
-    const historico = Array.isArray(req.body.historico) ? req.body.historico.slice(-12) : [];
+    // so as ultimas falas: conversa longa vira conta alta sem melhorar a resposta
+    const historico = Array.isArray(req.body.historico) ? req.body.historico.slice(-6) : [];
 
     const resultado = await perguntar({ pergunta, historico, operador: req.operador });
 

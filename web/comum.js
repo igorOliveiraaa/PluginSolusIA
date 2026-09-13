@@ -114,6 +114,25 @@ export function mostrarTela(nome) {
   window.scrollTo(0, 0);
 }
 
+/**
+ * Anima a entrada dos filhos, mas so na primeira vez que a lista e montada.
+ *
+ * Sem isso, cada redesenho (mudar uma quantidade, escolher um produto) fazia a
+ * lista inteira piscar do transparente para o opaco - de longe parece a tela
+ * "apagando". Depois da primeira vez, a troca e instantanea.
+ */
+export function animarSeForAPrimeiraVez(elemento) {
+  if (!elemento || elemento.dataset.jaAnimou === 'sim') return;
+  elemento.dataset.jaAnimou = 'sim';
+  elemento.classList.add('entrando');
+  setTimeout(() => elemento.classList.remove('entrando'), 900);
+}
+
+/** Faz a lista animar de novo (usado quando se comeca do zero). */
+export function permitirAnimarDeNovo(elemento) {
+  if (elemento) delete elemento.dataset.jaAnimou;
+}
+
 /** Caixa de busca com espera, para nao consultar a cada tecla digitada. */
 export function aoDigitar(elemento, acao, espera = 350) {
   let temporizador;

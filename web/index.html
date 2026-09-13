@@ -6,7 +6,14 @@
   <meta name="theme-color" content="#0f766e">
   <title>Plugin IA Solus</title>
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icone.svg">
+  <!-- O celular so oferece "instalar aplicativo" com icone PNG: o SVG ele ignora. -->
+  <link rel="apple-touch-icon" href="icone-192.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icone-192.png">
+  <link rel="icon" type="image/svg+xml" href="icone.svg">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Plugin Solus">
   <link rel="stylesheet" href="estilo.css">
 </head>
 <body>
@@ -107,6 +114,9 @@
 </header>
 
 <main>
+
+  <!-- convite para instalar o app (aparece so quando da para instalar) -->
+  <div id="faixa-instalar" class="faixa-instalar escondido"></div>
 
   <!-- ===================== ASSISTENTE ===================== -->
   <section id="tela-assistente" class="tela ativa">
@@ -366,6 +376,12 @@
 
   <!-- ===================== AJUSTES ===================== -->
   <section id="tela-config" class="tela">
+    <div class="cartao">
+      <h2>Este aparelho</h2>
+      <p class="ajuda">Instalado, o Plugin abre pelo ícone, sem digitar endereço.</p>
+      <div id="instalar-ajustes"></div>
+    </div>
+
     <div class="cartao">
       <h2>Loja e Solus</h2>
       <p class="ajuda" id="loja-dos-ajustes">Os ajustes abaixo valem para a loja em que você entrou.</p>

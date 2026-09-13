@@ -1,6 +1,6 @@
 /* Aba de Tarefas: o que esta pendente e o que ja se resolveu sozinho. */
 
-import { $, api, escapar, dinheiro, avisar, sessao } from './comum.js';
+import { $, api, escapar, avisar, sessao } from './comum.js';
 import { icone } from './icones.js';
 
 let tarefas = [];

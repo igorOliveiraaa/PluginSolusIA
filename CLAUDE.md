@@ -38,6 +38,7 @@ editável pela aba **Ajustes** da própria ferramenta.
 | `src/rotas-lojas.js` | Lojas no login e tela "Configurar lojas" (só no PC servidor ou gerente) |
 | `src/db/firebird.js` | Conexão, conversão de número e de acento |
 | `src/db/produtos.js` | Buscar produto (barras, fornecedor, nome) e achar repetidos |
+| `src/db/catalogo.js` | Indice do catalogo na memoria: a busca que ignora acento e sabe o que mais vende |
 | `src/db/gravacao.js` | Gravar, igualar preço de repetidos, desativar, desfazer |
 | `src/leitura/xml.js` | Ler XML da NF-e + converter caixa em unidade |
 | `src/leitura/ia.js` | Ler foto/PDF com o Google Gemini |
@@ -63,7 +64,8 @@ editável pela aba **Ajustes** da própria ferramenta.
 | `src/https-local.js` | Certificado do HTTPS da rede |
 | `web/` | A interface (PWA, funciona no celular e no PC) |
 | `web/icones.js` | Ícones em SVG (sem emoji, sem biblioteca) |
-| `src/ferramentas/` | Scripts de teste |
+| `web/instalar.js` | Instalar como aplicativo no celular e no PC |
+| `src/ferramentas/` | Scripts de teste (`varredura.mjs` caça bugs no codigo; `gerar-icones.mjs` refaz os icones) |
 
 ## O que aprendi do banco do Solus (importante, custou trabalho descobrir)
 
@@ -118,7 +120,20 @@ editável pela aba **Ajustes** da própria ferramenta.
   `gemini-flash-lite-latest`.
 - Com ferramentas (function calling), a fala do modelo tem que voltar **inteira** para a
   conversa: os modelos novos mandam `thoughtSignature` e dão 400 se ela sumir.
-- O assistente leva de 10 a 50 segundos por pergunta no plano gratuito.
+- O assistente leva de 10 a 50 segundos por pergunta no plano gratuito
+  (com o raciocínio interno desligado ficou perto de 15s).
+- **O que mais gasta não é a resposta, é o "raciocínio interno"** (thinking), cobrado
+  como texto gerado. Para leitura de documento com formato fixo ele não ajuda:
+  `thinkingConfig: { thinkingBudget: 0 }`. Nem todo modelo aceita o campo — por isso
+  `chamarGemini` repete sem ele quando o erro 400 fala em "thinking".
+
+## Cuidado ao editar código por linha de comando
+
+Este ambiente **come as barras invertidas** de texto passado pelo terminal (mesmo em
+heredoc com aspas). Já quebrou coisas de verdade três vezes: `/\./g` virou `/./g`
+(apagava tudo em vez de só o ponto), `2\d` virou `2d` (faixa de IP que nunca casava)
+e `$$` virou `$` (import quebrado). **Para editar arquivo com `\` ou `$$`, use o
+editor, não o terminal.** `node src/ferramentas/varredura.mjs` acha esses casos.
 
 ## Status atual
 
@@ -142,16 +157,33 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 
 ### 2. Orçamento — pronto
 - Lê a lista do cliente por foto/print/PDF (IA) ou digitada (sem IA, de graça).
-- Procura cada item no estoque; **quando fica em dúvida, pergunta** em vez de chutar.
-- Mostra quanto **aquele cliente** pagou da última vez, preço de tabela, custo e margem
-  (custo só para quem tem permissão no Solus).
+- **Busca pelo índice do catálogo** (`db/catalogo.js`): ignora acento e cedilha,
+  entende que "5LT", "5 L" e "5 litros" são a mesma coisa, aguenta erro de digitação
+  e **põe na frente o que a loja mais vende e o que saiu por último**. Produto
+  CANCELADO cai para o fim. Na dúvida, o que **aquele cliente** já comprou ganha.
+- Cada opção vem com etiqueta explicando por que apareceu ("é o que mais sai",
+  "mais provável", "sem estoque", "cancelado"), para a escolha ser rápida.
+- **Quando fica em dúvida, pergunta** em vez de chutar — e o item continua visível
+  e destacado (não some nem fica apagado).
+- Mostra os quatro números juntos: preço de tabela, **quanto aquele cliente pagou**,
+  última venda da loja e custo/margem (custo só para quem tem permissão no Solus).
+  Aparecem igual nos três caminhos: achado sozinho, escolhido na tela, adicionado na mão.
+- Dá para **escolher o cliente depois** de montar a lista: o histórico de preço de
+  todos os itens é refeito na hora (`/api/orcamento/cliente`).
 - Avisa sobre estoque insuficiente e produto cancelado.
 - Grava como **STATUS='ORCAMENTO'** em PEDIDOS/ITEMPEDIDO: aparece na tela de
   orçamento do Solus, e a venda/nota é finalizada por lá.
 - Gera PDF, imprime e compartilha no WhatsApp (escolhendo o contato).
 
 ### 3. Cliente por CNPJ — pronto
-- Digita o CNPJ, busca na Receita (BrasilAPI) e cadastra no Solus.
+- Digita o CNPJ, busca em base pública e cadastra no Solus.
+- **Duas fontes, porque nenhuma tem tudo**: BrasilAPI (endereço e situação) +
+  cnpj.ws (**inscrição estadual** e o tipo da rua). Reserva: open.cnpja.com.
+- A rua vem completa ("RUA VOLUNTARIOS DA FRANCA", não só "VOLUNTARIOS DA FRANCA").
+- **Tudo que sai na nota é editável na tela** (IE, rua, número, complemento, bairro,
+  cidade, UF, CEP) e a tela avisa o que a Receita não informou — nota sem endereço
+  completo é recusada pela Sefaz.
+- A IE é gravada no formato que o Solus usa (em SP, `310.035.324.119`).
 - Avisa se o CNPJ já existe e se a empresa não está ATIVA.
 
 ### 4. Assistente que sabe do sistema — pronto
@@ -205,12 +237,46 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 ### 9. Visual — pronto
 - Vidro fosco, ícones em SVG desenhados no projeto (nenhum emoji, nenhuma
   biblioteca externa), animações curtas.
+- **Paleta com várias cores** (verde da marca, teal, roxo, azul, âmbar, rosa) em vez
+  de só verde: fundo com manchas que se movem devagar, topo em degradê animado,
+  e cada bloco de comparação com a sua cor. Tokens `--roxo`, `--azul`, `--ambar`,
+  `--rosa` no `:root`.
+- A entrada em cascata dos itens roda **só na primeira montagem da lista**
+  (`animarSeForAPrimeiraVez`). Antes ela rodava a cada redesenho e a tela inteira
+  piscava do transparente para o opaco — era o "fica tudo apagado".
 - No celular: abas em cima, botões grandes, respeita a área segura do aparelho.
 - No PC (1024px+): o menu vira barra lateral e a tela vira um app.
 - Respeita "reduzir animações" do sistema e tem estilo próprio para impressão.
 
+### 10. Instalar como aplicativo (PWA) — pronto
+- O celular **só oferece instalar com ícone PNG**: o manifesto tinha só SVG, e era
+  por isso que instalava no PC e não no celular. Agora há `icone-192.png`,
+  `icone-512.png` e `icone-maskable-512.png`, gerados por
+  `node src/ferramentas/gerar-icones.mjs` (desenho em código, sem biblioteca).
+- `web/instalar.js` cuida dos três casos: Android/Chrome (botão "Instalar o
+  aplicativo" com o `beforeinstallprompt`), iPhone (explica Compartilhar →
+  Adicionar à Tela de Início) e acesso por `http://IP` (leva para o endereço
+  `https`, porque instalar só funciona em conexão segura).
+- O mesmo assunto aparece na aba **Ajustes**, para quem fechou a faixa.
+
+### 11. Economia de IA — pronto
+- `configEconomica()` em `leitura/gemini.js`: desliga o **"raciocínio interno"**
+  do Gemini (`thinkingBudget: 0`), que é cobrado como texto gerado e não ajuda
+  em nada a arrancar dados de um documento — é a maior economia possível.
+  Se algum modelo não aceitar, a chamada repete sozinha sem essa parte.
+- Limite de tamanho de resposta em cada tarefa (nota 8192, lista 4096,
+  observação 1024, assistente 2048).
+- A observação usa o modelo mais barato (`gemini-flash-lite-latest`).
+- **A mesma pergunta não é paga duas vezes**: respostas ficam guardadas 15 minutos
+  (reenviar a mesma foto sai de graça e na hora).
+- O assistente manda só as 6 últimas falas da conversa, não 12.
+
 ### Pendente
 - **Testar com nota e lista reais da loja** (é o próximo passo).
+- No celular, para instalar o aplicativo é preciso abrir pelo endereço **https**.
+  Com certificado próprio o Chrome do Android não registra o service worker, então
+  pode não aparecer o botão: nesse caso o caminho é o menu do navegador →
+  "Adicionar à tela inicial" (a faixa na tela explica isso sozinha).
 - Chave do Gemini **já configurada** neste PC (em `dados/config.json`, fora do Git).
   Na loja, colar de novo pela aba Ajustes. Assistente testado com o banco real.
 - Preencher os dados da loja em Ajustes (saem no PDF do orçamento).

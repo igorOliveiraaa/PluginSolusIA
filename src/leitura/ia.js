@@ -6,7 +6,7 @@
 // vem daqui passa pela tela de conferencia antes de gravar.
 
 import { carregarConfig } from '../config.js';
-import { chamarGemini, textoDaResposta } from './gemini.js';
+import { chamarGemini, textoDaResposta, configEconomica, MODELO_ECONOMICO } from './gemini.js';
 
 const ENDERECO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -108,11 +108,12 @@ export async function lerDocumentoComIA(arquivos, observacao = '') {
   // chamarGemini ja tenta de novo sozinho e troca de modelo se o Google estiver cheio
   const dados = await chamarGemini({
     contents: [{ parts: partes }],
-    generationConfig: {
-      temperature: 0,               // leitura de documento nao pode ser "criativa"
+    // leitura de documento nao pode ser criativa nem precisa 'pensar' antes
+    generationConfig: configEconomica({
+      maximoDeResposta: 8192,      // nota grande tem muito item
       responseMimeType: 'application/json',
       responseSchema: FORMATO_RESPOSTA,
-    },
+    }),
   });
   const modelo = dados.modeloUsado;
   const texto = textoDaResposta(dados);
@@ -342,11 +343,11 @@ export async function lerListaDeCompras(arquivos = [], textoDigitado = '', obser
 
   const dados = await chamarGemini({
     contents: [{ parts: partes }],
-    generationConfig: {
-      temperature: 0,
+    generationConfig: configEconomica({
+      maximoDeResposta: 4096,
       responseMimeType: 'application/json',
       responseSchema: FORMATO_LISTA,
-    },
+    }),
   });
   const texto = textoDaResposta(dados);
   if (!texto.trim()) {
@@ -455,12 +456,12 @@ ${texto}
 
   const dados = await chamarGemini({
     contents: [{ parts: [{ text: instrucoes }] }],
-    generationConfig: {
-      temperature: 0,
+    generationConfig: configEconomica({
+      maximoDeResposta: 1024,
       responseMimeType: 'application/json',
       responseSchema: FORMATO_AJUSTE,
-    },
-  });
+    }),
+  }, { preferir: MODELO_ECONOMICO });
 
   const resposta = textoDaResposta(dados);
   if (!resposta) return null;

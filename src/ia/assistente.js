@@ -6,7 +6,7 @@
 //
 // Todas as ferramentas sao de LEITURA. O assistente nao altera nada na loja.
 
-import { chamarGemini } from '../leitura/gemini.js';
+import { chamarGemini, configEconomica } from '../leitura/gemini.js';
 import * as consultas from './consultas.js';
 import { consultaLivre, MAPA_DO_BANCO } from './sql-seguro.js';
 
@@ -208,8 +208,10 @@ function chamarIA({ conteudos, operador }) {
     systemInstruction: { parts: [{ text: instrucoes(operador) }] },
     contents: conteudos,
     tools: [{ functionDeclarations: DECLARACOES }],
-    generationConfig: { temperature: 0.2 },
-  });
+    // 'pensar' pouco: o suficiente para escolher a consulta certa, sem gastar a toa
+    generationConfig: configEconomica({ temperature: 0.2, pensar: 512, maximoDeResposta: 2048 }),
+    // cada rodada da conversa e diferente da anterior: guardar nao ajudaria
+  }, { lembrar: false });
 }
 
 /**

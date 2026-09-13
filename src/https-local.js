@@ -32,9 +32,11 @@ export function ipsDaMaquina() {
 
 /** Endereco de rede interna (WiFi/cabo da loja). Os outros sao VPN, celular roteado etc. */
 export function ehRedeLocal(ip) {
-  return /^192.168./.test(ip)
-    || /^10./.test(ip)
-    || /^172.(1[6-9]|2d|3[01])./.test(ip);
+  // Os pontos precisam de barra invertida: sem ela, "/^10./" tambem aceitava
+  // 100.64.x.x (celular roteando internet) e a faixa 172.16-31 nunca era aceita.
+  return /^192\.168\./.test(ip)
+    || /^10\./.test(ip)
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
 }
 
 /**

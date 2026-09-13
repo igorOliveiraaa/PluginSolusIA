@@ -12,11 +12,13 @@ import {
 } from './db/clientes.js';
 import { lerListaDeCompras } from './leitura/ia.js';
 import { lerListaDigitada } from './leitura/lista-texto.js';
-import { montarOrcamento, recalcularItem } from './logica/orcamento.js';
+import {
+  montarOrcamento, recalcularItem, montarItemComProduto, trocarClienteDoOrcamento, resumir,
+} from './logica/orcamento.js';
 import { buscarPorCodigo, buscarPorDescricao, buscarPorBarras } from './db/produtos.js';
 import { gravarOrcamento, apagarOrcamento } from './db/orcamento.js';
 import { gerarPdfOrcamento, textoDoWhatsApp, dadosDaLoja } from './pdf-orcamento.js';
-import { acompanharOrcamento, acompanhamentoDoOrcamento } from './tarefas.js';
+import { acompanharOrcamento } from './tarefas.js';
 
 import { lojaAtualId } from './loja-atual.js';
 
@@ -176,20 +178,32 @@ rotas.post('/api/orcamento/escolher', exigirLogin, async (req, res) => {
     const produto = await buscarPorCodigo(codigoProduto);
     if (!produto) throw new Error('Produto nao encontrado.');
 
-    item.produto = produto;
-    item.precisaEscolher = false;
-    item.certeza = 'alta';
-    item.comoAchou = 'escolhido na tela';
-    item.precoTabela = produto.vendaAtual;
-    item.precoUnitario = produto.vendaAtual;
-    item.custo = req.operador.permissoes.verCusto ? produto.custoAtual : null;
-    item.incluir = true;
-    item.total = Math.round(produto.vendaAtual * item.quantidade * 100) / 100;
-    item.avisos = produto.estoque < item.quantidade
-      ? [{ tipo: 'estoque', texto: `O cliente pediu ${item.quantidade} e tem ${produto.estoque} em estoque.` }]
-      : [];
+    // passa pelo mesmo montador da lista: assim o item escolhido na tela mostra
+    // "esse cliente pagou", custo e margem igual aos que a ferramenta achou sozinha
+    orcamento.itens[indice] = await montarItemComProduto({
+      base: item,
+      produto,
+      cliente: orcamento.cliente,
+      mostrarCusto: req.operador.permissoes.verCusto,
+      comoAchou: 'escolhido na tela',
+      opcoes: item.opcoes,
+    });
 
-    res.json({ ok: true, item, resumo: recalcularResumo(orcamento) });
+    res.json({ ok: true, item: orcamento.itens[indice], resumo: recalcularResumo(orcamento) });
+  } catch (e) { erro(res, e); }
+});
+
+/** Escolher (ou trocar) o cliente com o orcamento ja montado na tela. */
+rotas.post('/api/orcamento/cliente', exigirLogin, async (req, res) => {
+  try {
+    const { id, codigoCliente } = req.body;
+    const orcamento = pegar(id);
+
+    const cliente = codigoCliente ? await buscarClientePorCodigo(codigoCliente) : null;
+    if (codigoCliente && !cliente) throw new Error('Cliente nao encontrado.');
+
+    await trocarClienteDoOrcamento(orcamento, cliente, req.operador.permissoes.verCusto);
+    res.json({ ok: true, orcamento, resumo: orcamento.resumo });
   } catch (e) { erro(res, e); }
 });
 
@@ -221,23 +235,20 @@ rotas.post('/api/orcamento/adicionar', exigirLogin, async (req, res) => {
     if (!produto) throw new Error('Produto nao encontrado.');
 
     const qtd = Number(quantidade) > 0 ? Number(quantidade) : 1;
-    orcamento.itens.push({
-      numero: orcamento.itens.length + 1,
-      textoOriginal: '(adicionado na tela)',
-      descricao: produto.descricao,
-      quantidade: qtd,
+    const novo = await montarItemComProduto({
+      base: {
+        numero: orcamento.itens.length + 1,
+        textoOriginal: '(adicionado na tela)',
+        descricao: produto.descricao,
+        quantidade: qtd,
+      },
       produto,
-      opcoes: [produto],
-      certeza: 'alta',
+      cliente: orcamento.cliente,
+      mostrarCusto: req.operador.permissoes.verCusto,
       comoAchou: 'adicionado na tela',
-      precisaEscolher: false,
-      precoUnitario: produto.vendaAtual,
-      precoTabela: produto.vendaAtual,
-      custo: req.operador.permissoes.verCusto ? produto.custoAtual : null,
-      total: Math.round(produto.vendaAtual * qtd * 100) / 100,
-      avisos: [],
-      incluir: true,
+      opcoes: [produto],
     });
+    orcamento.itens.push(novo);
 
     res.json({ ok: true, orcamento, resumo: recalcularResumo(orcamento) });
   } catch (e) { erro(res, e); }
@@ -330,17 +341,18 @@ rotas.get('/api/orcamento/buscar-produto', exigirLogin, async (req, res) => {
       const porBarras = await buscarPorBarras(digitos);
       if (porBarras) return res.json({ ok: true, produtos: [porBarras] });
     }
-    res.json({ ok: true, produtos: await buscarPorDescricao(termo, 15) });
+
+    // com o orcamento aberto, o que esse cliente ja comprou vem na frente
+    let preferir = [];
+    try {
+      if (req.query.id) preferir = pegar(String(req.query.id)).preferidos || [];
+    } catch { /* orcamento expirado: a busca continua, so sem a preferencia */ }
+
+    res.json({ ok: true, produtos: await buscarPorDescricao(termo, 15, { preferir }) });
   } catch (e) { erro(res, e); }
 });
 
 function recalcularResumo(orcamento) {
-  const incluidos = orcamento.itens.filter((i) => i.incluir && i.produto);
-  orcamento.resumo = {
-    totalItens: orcamento.itens.length,
-    precisamEscolha: orcamento.itens.filter((i) => i.precisaEscolher).length,
-    semEstoque: orcamento.itens.filter((i) => i.produto && i.produto.estoque <= 0).length,
-    total: Math.round(incluidos.reduce((s, i) => s + (i.total || 0), 0) * 100) / 100,
-  };
+  orcamento.resumo = resumir(orcamento.itens);
   return orcamento.resumo;
 }

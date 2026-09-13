@@ -9,6 +9,7 @@ import express from 'express';
 import { lojasConfiguradas, salvarLojas, criarIdDaLoja } from './config.js';
 import { reiniciarConexao } from './db/firebird.js';
 import { limparCacheColunas } from './db/produtos.js';
+import { invalidarCatalogo } from './db/catalogo.js';
 import { operadorDaSessao } from './db/operadores.js';
 import { procurarInstalacoes, testarBanco } from './instalacoes-solus.js';
 import { ipsDaMaquina } from './https-local.js';
@@ -136,6 +137,7 @@ rotasLojas.post('/api/instalacao/lojas', exigirConfigurador, async (req, res) =>
     const salvas = salvarLojas(validadas);
     reiniciarConexao();
     limparCacheColunas();
+    invalidarCatalogo();
 
     res.json({ ok: true, lojas: salvas.map((l) => ({ id: l.id, nome: l.nome, cnpj: l.cnpj })) });
   } catch (e) { erro(res, e); }

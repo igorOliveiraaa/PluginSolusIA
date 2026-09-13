@@ -4,14 +4,20 @@
 // "saco de lixo grande") e o catalogo tem outro nome ("COPO DESCARTAVEL 200ML PCT C/100").
 // Entao a ferramenta NAO tenta adivinhar sozinha quando fica em duvida: ela mostra as
 // opcoes e pergunta. Chutar produto errado em orcamento vira preco errado para o cliente.
+//
+// Quem procura e ordena e o indice do catalogo (`db/catalogo.js`): ignora acento e
+// cedilha, entende "5LT" = "5 litros", aguenta erro de digitacao e poe na frente o
+// que a loja mais vende e o que saiu por ultimo. Na duvida, o que ESTE cliente ja
+// comprou vem antes de tudo.
 
-import { buscarPorBarras, buscarPorDescricao, buscarPorCodigo, semelhanca, normalizarTexto } from '../db/produtos.js';
+import { buscarPorBarras, buscarPorDescricao, buscarPorCodigo } from '../db/produtos.js';
+import { chavesDoProduto, codigosDasChaves } from '../db/catalogo.js';
 import { ultimoPrecoDoCliente, ultimoPrecoDaLoja, ultimasCompras } from '../db/clientes.js';
 
-// acima disso, e a mesma coisa e pode escolher sozinho
-const CERTEZA_SUFICIENTE = 0.72;
+// acima disso, casou com quase tudo que foi pedido e pode escolher sozinho
+const COBERTURA_SUFICIENTE = 0.85;
 // diferenca minima para o primeiro ser "claramente melhor" que o segundo
-const DISTANCIA_SEGURA = 0.18;
+const DISTANCIA_SEGURA = 0.15;
 
 /** Junta descricao + marca + tamanho no texto que vai para a busca. */
 function textoDeBusca(item) {
@@ -19,126 +25,159 @@ function textoDeBusca(item) {
 }
 
 /**
- * Da uma nota melhor ao candidato quando marca e tamanho batem.
- * "detergente ype 500ml" tem que ganhar de "detergente limpol 500ml".
- */
-function pontuar(item, produto) {
-  let nota = semelhanca(textoDeBusca(item), produto.descricao);
-
-  const alvo = normalizarTexto(produto.descricao);
-  if (item.marca && alvo.includes(normalizarTexto(item.marca))) nota += 0.15;
-  if (item.tamanho) {
-    // o cliente escreve "100 litros" e o catalogo tem "100 LT": compara pelos
-    // dois jeitos, com a unidade por extenso e abreviada
-    const semEspaco = (texto) => normalizarTexto(texto).replace(/\s/g, '');
-    const abreviar = (texto) => semEspaco(texto)
-      .replace(/LITROS?/g, 'LT')
-      .replace(/MILILITROS?/g, 'ML')
-      .replace(/QUILOS?|KILOS?|QUILOGRAMAS?/g, 'KG')
-      .replace(/GRAMAS?/g, 'G')
-      .replace(/METROS?/g, 'M');
-
-    const alvoSemEspaco = semEspaco(produto.descricao);
-    const alvoAbreviado = abreviar(produto.descricao);
-    const tamanho = semEspaco(item.tamanho);
-    const tamanhoAbreviado = abreviar(item.tamanho);
-
-    if ((tamanho && alvoSemEspaco.includes(tamanho))
-      || (tamanhoAbreviado && alvoAbreviado.includes(tamanhoAbreviado))) {
-      nota += 0.2;
-    }
-  }
-
-  // No catalogo o nome comeca pelo tipo do produto ("COPO DESC. AGUA 180ML"),
-  // entao quem COMECA com o que o cliente pediu costuma ser o certo -
-  // e nao um acessorio que so cita o produto ("LIXEIRA P/ COPO DE AGUA").
-  const pedido = normalizarTexto(item.descricao);
-  const primeiraPalavra = pedido.split(' ')[0];
-  if (primeiraPalavra && primeiraPalavra.length >= 3) {
-    if (alvo.startsWith(primeiraPalavra)) nota += 0.18;
-  }
-  // acessorio de outra coisa costuma ter "P/" ou "PARA" no nome
-  if (/\bP\/|\bPARA\b|SUPORTE|DISPENSER|LIXEIRA/.test(alvo) && !/P\/|PARA|SUPORTE|DISPENSER|LIXEIRA/.test(pedido)) {
-    nota -= 0.12;
-  }
-
-  // produto sem estoque continua aparecendo, mas perde um pouco de prioridade
-  if (produto.estoque <= 0) nota -= 0.05;
-  if (produto.cancelado) nota -= 0.5;
-
-  return Math.min(Math.max(nota, 0), 1);
-}
-
-/**
  * Procura os candidatos de um item no catalogo.
  * Devolve o escolhido (quando da para ter certeza) e sempre a lista de opcoes.
  */
-async function procurarCandidatos(item, comprasAnteriores) {
+async function procurarCandidatos(item, preferidos) {
   // 1) se o cliente mandou um codigo de barras, acabou a duvida
   const digitos = String(item.descricao || '').replace(/\D/g, '');
   if (digitos.length >= 12) {
     const porBarras = await buscarPorBarras(digitos);
     if (porBarras) {
-      return { escolhido: porBarras, opcoes: [porBarras], certeza: 'alta', comoAchou: 'codigo de barras' };
+      return { escolhido: porBarras, opcoes: [porBarras], certeza: 'alta', comoAchou: 'código de barras' };
     }
   }
 
-  // 2) o cliente ja comprou algo parecido antes? isso costuma matar a duvida
-  const doHistorico = comprasAnteriores
-    .map((compra) => ({ compra, nota: semelhanca(textoDeBusca(item), compra.descricao) }))
-    .filter((x) => x.nota >= 0.6)
-    .sort((a, b) => b.nota - a.nota)[0];
-
-  // 3) busca no catalogo pelo nome
-  const candidatos = await buscarPorDescricao(textoDeBusca(item), 12);
-
-  if (doHistorico) {
-    // traz tambem o produto exato que ele levou da outra vez
-    const jaComprado = await buscarPorBarras(doHistorico.compra.produto)
-      || await buscarPorCodigo(doHistorico.compra.produto);
-    if (jaComprado && !candidatos.some((c) => c.codigo === jaComprado.codigo)) {
-      candidatos.unshift(jaComprado);
-    }
-  }
-
+  // 2) busca no catalogo, ja com o historico do cliente pesando na ordem
+  const candidatos = await buscarPorDescricao(textoDeBusca(item), 8, { preferir: preferidos });
   if (!candidatos.length) {
-    return { escolhido: null, opcoes: [], certeza: 'nenhuma', comoAchou: 'nao encontrado' };
+    return { escolhido: null, opcoes: [], certeza: 'nenhuma', comoAchou: 'não encontrado' };
   }
 
-  const ordenados = candidatos
-    .map((produto) => {
-      let nota = pontuar(item, produto);
-      // se foi esse mesmo que o cliente levou da ultima vez, ganha bastante peso
-      if (doHistorico && (produto.barras === doHistorico.compra.produto
-        || produto.codigo === doHistorico.compra.produto)) {
-        nota = Math.min(nota + 0.25, 1);
-      }
-      return { produto, nota };
-    })
-    .sort((a, b) => b.nota - a.nota);
-
-  const melhor = ordenados[0];
-  const segundo = ordenados[1];
+  const melhor = candidatos[0];
+  const segundo = candidatos[1];
+  const jaComprou = preferidos.includes(melhor.codigo);
 
   const claramenteMelhor = !segundo || (melhor.nota - segundo.nota) >= DISTANCIA_SEGURA;
-  const bomOSuficiente = melhor.nota >= CERTEZA_SUFICIENTE;
+  const casouQuaseTudo = melhor.cobertura >= COBERTURA_SUFICIENTE;
 
-  // so decide sozinho quando esta seguro E nao ha empate com outro produto
-  if (bomOSuficiente && claramenteMelhor) {
+  // so decide sozinho quando casou o que foi pedido E nao ha empate com outro
+  if (casouQuaseTudo && (claramenteMelhor || jaComprou)) {
     return {
-      escolhido: melhor.produto,
-      opcoes: ordenados.slice(0, 6).map((o) => o.produto),
+      escolhido: melhor,
+      opcoes: candidatos.slice(0, 6),
       certeza: 'alta',
-      comoAchou: doHistorico ? 'ja comprou antes' : 'nome parecido',
+      comoAchou: jaComprou ? 'esse cliente já levou' : 'nome parecido',
     };
   }
 
   return {
     escolhido: null,
-    opcoes: ordenados.slice(0, 6).map((o) => o.produto),
-    certeza: bomOSuficiente ? 'empate' : 'baixa',
+    opcoes: candidatos.slice(0, 6),
+    certeza: casouQuaseTudo ? 'empate' : 'baixa',
     comoAchou: 'precisa escolher',
   };
+}
+
+// ---------------------------------------------------------------------------
+// Um item pronto para a tela
+// ---------------------------------------------------------------------------
+
+/** O que este cliente pagou, e o que a loja praticou, neste produto. */
+async function precosDeReferencia(produto, cliente) {
+  if (!produto) return { doCliente: null, daLoja: null };
+  const chaves = chavesDoProduto(produto);
+  const doCliente = cliente?.codigo ? await ultimoPrecoDoCliente(cliente.codigo, chaves) : null;
+  const daLoja = await ultimoPrecoDaLoja(chaves);
+  return { doCliente, daLoja };
+}
+
+function avisosDoItem({ produto, quantidade, precoTabela, ultimoDoCliente, confianca, textoOriginal }) {
+  const avisos = [];
+  if (!produto) {
+    if (confianca === 'baixa') {
+      avisos.push({ tipo: 'leitura', texto: `Não deu para ler direito: "${textoOriginal}".` });
+    }
+    return avisos;
+  }
+
+  if (produto.estoque <= 0) {
+    avisos.push({ tipo: 'estoque', texto: `Sem estoque no sistema (${produto.estoque}).` });
+  } else if (produto.estoque < quantidade) {
+    avisos.push({
+      tipo: 'estoque',
+      texto: `O cliente pediu ${quantidade} e tem ${produto.estoque} em estoque.`,
+    });
+  }
+  if (precoTabela <= 0) {
+    avisos.push({ tipo: 'preco', texto: 'Esse produto está sem preço de venda no cadastro.' });
+  }
+  if (ultimoDoCliente && precoTabela > 0 && ultimoDoCliente.preco > 0) {
+    const diferenca = ((precoTabela - ultimoDoCliente.preco) / ultimoDoCliente.preco) * 100;
+    if (Math.abs(diferenca) >= 5) {
+      avisos.push({
+        tipo: 'historico',
+        texto: `Da última vez esse cliente pagou R$ ${ultimoDoCliente.preco.toFixed(2).replace('.', ',')} `
+          + `(hoje está ${Math.abs(diferenca).toFixed(0)}% mais ${diferenca > 0 ? 'caro' : 'barato'}).`,
+      });
+    }
+  }
+  if (produto.cancelado) {
+    avisos.push({ tipo: 'cancelado', texto: 'Esse produto está CANCELADO no Solus.' });
+  }
+  if (confianca === 'baixa') {
+    avisos.push({ tipo: 'leitura', texto: `Não deu para ler direito: "${textoOriginal}".` });
+  }
+  return avisos;
+}
+
+/**
+ * Monta (ou remonta) UM item com o produto ja escolhido.
+ * Usada nos tres caminhos - montar a lista, escolher na tela e adicionar na mao -
+ * para que os tres mostrem exatamente as mesmas informacoes. Antes, escolher na
+ * tela deixava "esse cliente pagou", custo e margem vazios.
+ */
+export async function montarItemComProduto({
+  base, produto, cliente, mostrarCusto = false, precoUnitario, comoAchou, opcoes,
+}) {
+  const quantidade = Number(base?.quantidade) > 0 ? Number(base.quantidade) : 1;
+  const { doCliente, daLoja } = await precosDeReferencia(produto, cliente);
+
+  const precoTabela = produto?.vendaAtual || 0;
+  const preco = precoUnitario !== undefined && precoUnitario !== null
+    ? Number(precoUnitario)
+    : precoTabela;
+  const custo = mostrarCusto ? (produto?.custoAtual || 0) : null;
+
+  return {
+    ...base,
+    produto,
+    opcoes: opcoes || base?.opcoes || (produto ? [produto] : []),
+    certeza: produto ? 'alta' : (base?.certeza || 'baixa'),
+    comoAchou: comoAchou || base?.comoAchou || '',
+    precisaEscolher: !produto,
+    quantidade,
+    precoUnitario: preco,
+    precoTabela,
+    custo,
+    margem: mostrarCusto && produto?.custoAtual > 0
+      ? ((preco - produto.custoAtual) / produto.custoAtual) * 100
+      : null,
+    ultimoPrecoCliente: doCliente,
+    ultimoPrecoLoja: daLoja,
+    total: arredondar(preco * quantidade),
+    avisos: avisosDoItem({
+      produto,
+      quantidade,
+      precoTabela,
+      ultimoDoCliente: doCliente,
+      confianca: base?.confianca,
+      textoOriginal: base?.textoOriginal || base?.descricao || '',
+    }),
+    incluir: Boolean(produto),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// O orcamento inteiro
+// ---------------------------------------------------------------------------
+
+/** Codigos que este cliente ja comprou - na duvida, sao eles que ganham. */
+async function produtosQueOClienteJaLevou(cliente) {
+  if (!cliente?.codigo) return { preferidos: [], compras: [] };
+  const compras = await ultimasCompras(cliente.codigo, 120);
+  const preferidos = await codigosDasChaves(compras.map((c) => c.produto)).catch(() => []);
+  return { preferidos, compras };
 }
 
 /**
@@ -146,91 +185,61 @@ async function procurarCandidatos(item, comprasAnteriores) {
  * `lista` vem da IA (ou digitada), `cliente` pode ser null (consumidor).
  */
 export async function montarOrcamento({ lista, cliente, mostrarCusto = false }) {
-  const comprasAnteriores = cliente?.codigo ? await ultimasCompras(cliente.codigo, 60) : [];
+  const { preferidos } = await produtosQueOClienteJaLevou(cliente);
 
   const itens = [];
   for (const bruto of lista.itens) {
-    const achado = await procurarCandidatos(bruto, comprasAnteriores);
-    const produto = achado.escolhido;
-
-    // preco que esse cliente pagou da ultima vez neste produto
-    let ultimoDoCliente = null;
-    let ultimoDaLoja = null;
-    if (produto && cliente?.codigo) {
-      const chave = produto.barras || produto.codigo;
-      ultimoDoCliente = await ultimoPrecoDoCliente(cliente.codigo, chave);
-      if (!ultimoDoCliente) ultimoDaLoja = await ultimoPrecoDaLoja(chave);
-    } else if (produto) {
-      ultimoDaLoja = await ultimoPrecoDaLoja(produto.barras || produto.codigo);
-    }
-
-    const precoTabela = produto?.vendaAtual || 0;
-    // sugere o preco de tabela; se o cliente ja tem um preco praticado, avisa a diferenca
-    const precoSugerido = precoTabela;
-
-    const avisos = [];
-    if (produto) {
-      if (produto.estoque <= 0) {
-        avisos.push({ tipo: 'estoque', texto: `Sem estoque no sistema (${produto.estoque}).` });
-      } else if (produto.estoque < bruto.quantidade) {
-        avisos.push({
-          tipo: 'estoque',
-          texto: `O cliente pediu ${bruto.quantidade} e tem ${produto.estoque} em estoque.`,
-        });
-      }
-      if (precoTabela <= 0) {
-        avisos.push({ tipo: 'preco', texto: 'Esse produto esta sem preco de venda no cadastro.' });
-      }
-      if (ultimoDoCliente && precoTabela > 0) {
-        const diferenca = ((precoTabela - ultimoDoCliente.preco) / ultimoDoCliente.preco) * 100;
-        if (Math.abs(diferenca) >= 5) {
-          avisos.push({
-            tipo: 'historico',
-            texto: `Da ultima vez esse cliente pagou R$ ${ultimoDoCliente.preco.toFixed(2)} `
-              + `(${diferenca > 0 ? 'hoje esta ' + diferenca.toFixed(0) + '% mais caro' : 'hoje esta ' + Math.abs(diferenca).toFixed(0) + '% mais barato'}).`,
-          });
-        }
-      }
-      if (produto.cancelado) {
-        avisos.push({ tipo: 'cancelado', texto: 'Esse produto esta CANCELADO no Solus.' });
-      }
-    }
-    if (bruto.confianca === 'baixa') {
-      avisos.push({ tipo: 'leitura', texto: `Nao deu para ler direito: "${bruto.textoOriginal}".` });
-    }
-
-    itens.push({
-      ...bruto,
-      produto,
-      opcoes: achado.opcoes,
-      certeza: achado.certeza,
+    const achado = await procurarCandidatos(bruto, preferidos);
+    const item = await montarItemComProduto({
+      base: { ...bruto, numero: itens.length + 1 },
+      produto: achado.escolhido,
+      cliente,
+      mostrarCusto,
       comoAchou: achado.comoAchou,
-      precisaEscolher: !produto,
-      quantidade: bruto.quantidade,
-      precoUnitario: precoSugerido,
-      precoTabela,
-      custo: mostrarCusto ? (produto?.custoAtual || 0) : null,
-      margem: mostrarCusto && produto?.custoAtual > 0
-        ? ((precoSugerido - produto.custoAtual) / produto.custoAtual) * 100
-        : null,
-      ultimoPrecoCliente: ultimoDoCliente,
-      ultimoPrecoLoja: ultimoDaLoja,
-      total: arredondar(precoSugerido * bruto.quantidade),
-      avisos,
-      incluir: Boolean(produto),
+      opcoes: achado.opcoes,
     });
+    item.certeza = achado.certeza;
+    itens.push(item);
   }
 
   return {
     cliente,
     itens,
+    preferidos,
     observacoesDaLista: lista.observacoes || '',
     clienteCitado: lista.clienteCitado || '',
     resumo: resumir(itens),
   };
 }
 
-function resumir(itens) {
+/**
+ * Troca o cliente de um orcamento ja montado e refaz o historico de preco de
+ * todos os itens. E o que faz "escolhi o cliente depois" funcionar.
+ */
+export async function trocarClienteDoOrcamento(orcamento, cliente, mostrarCusto = false) {
+  orcamento.cliente = cliente || null;
+  orcamento.preferidos = (await produtosQueOClienteJaLevou(cliente)).preferidos;
+
+  for (let i = 0; i < orcamento.itens.length; i += 1) {
+    const item = orcamento.itens[i];
+    if (!item.produto) continue;
+    orcamento.itens[i] = await montarItemComProduto({
+      base: item,
+      produto: item.produto,
+      cliente,
+      mostrarCusto,
+      precoUnitario: item.precoUnitario,
+      comoAchou: item.comoAchou,
+      opcoes: item.opcoes,
+    });
+    orcamento.itens[i].incluir = item.incluir;
+  }
+
+  orcamento.resumo = resumir(orcamento.itens);
+  return orcamento;
+}
+
+export function resumir(itens) {
   const incluidos = itens.filter((i) => i.incluir && i.produto);
   return {
     totalItens: itens.length,
@@ -240,10 +249,13 @@ function resumir(itens) {
   };
 }
 
-/** Recalcula um item quando o operador muda preco, quantidade ou produto. */
+/** Recalcula um item quando o operador muda preco ou quantidade. */
 export function recalcularItem(item, { quantidade, precoUnitario, mostrarCusto }) {
-  const qtd = quantidade !== undefined ? Number(quantidade) : item.quantidade;
-  const preco = precoUnitario !== undefined ? Number(precoUnitario) : item.precoUnitario;
+  const pedida = quantidade !== undefined ? Number(quantidade) : item.quantidade;
+  const qtd = Number.isFinite(pedida) && pedida > 0 ? pedida : item.quantidade;
+
+  const pedido = precoUnitario !== undefined ? Number(precoUnitario) : item.precoUnitario;
+  const preco = Number.isFinite(pedido) && pedido >= 0 ? pedido : item.precoUnitario;
 
   return {
     ...item,
@@ -254,6 +266,13 @@ export function recalcularItem(item, { quantidade, precoUnitario, mostrarCusto }
       ? ((preco - item.produto.custoAtual) / item.produto.custoAtual) * 100
       : item.margem,
   };
+}
+
+/** Procura um produto pelo codigo, aceitando tambem codigo de barras. */
+export async function produtoPorCodigoOuBarras(codigo) {
+  const texto = String(codigo || '').trim();
+  if (!texto) return null;
+  return (await buscarPorCodigo(texto)) || (await buscarPorBarras(texto));
 }
 
 function arredondar(valor, casas = 2) {

@@ -1,9 +1,10 @@
 /* Ponto de partida: carrega as telas na ordem certa e cuida do login. */
 
-import { $, $$, mostrarTela } from './comum.js';
+import { $$, mostrarTela } from './comum.js';
 import { conferirSessao, mostrarQuemEntrou } from './login.js';
 import { aplicarIcones } from './icones.js';
 import './orcamento.js';
+import './instalar.js';
 import './assistente.js';
 import { carregarTarefas, acompanharDeFundo } from './tarefas.js';
 import { iniciarTelaDeNota } from './app.js';

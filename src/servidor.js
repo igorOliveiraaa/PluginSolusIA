@@ -10,6 +10,7 @@ import path from 'node:path';
 import { carregarConfig, salvarConfig, garantirPastas, PASTAS } from './config.js';
 import { testarConexao, reiniciarConexao } from './db/firebird.js';
 import { limparCacheColunas, buscarPorBarras, buscarPorCodigo, buscarPorDescricao } from './db/produtos.js';
+import { invalidarCatalogo } from './db/catalogo.js';
 import { aplicarNota, desfazer } from './db/gravacao.js';
 import { lerXmlNfe, pareceXmlNfe } from './leitura/xml.js';
 import { lerDocumentoComIA, testarChave, listarModelos, interpretarObservacao } from './leitura/ia.js';
@@ -346,6 +347,7 @@ app.post('/api/config', exigirLogin, (req, res) => {
     const salvo = salvarConfig(novo);
     reiniciarConexao();
     limparCacheColunas();
+    invalidarCatalogo();
 
     res.json({ ok: true, config: { ...salvo, banco: undefined } });
   } catch (erro) {

@@ -5,7 +5,8 @@ import fs from 'node:fs';
 const html = fs.readFileSync('web/index.html', 'utf8');
 const idsNoHtml = new Set([...html.matchAll(/id="([^"]+)"/g)].map((m) => m[1]));
 
-const arquivos = ['web/app.js', 'web/comum.js', 'web/login.js', 'web/orcamento.js', 'web/inicio.js'];
+const arquivos = ['web/app.js', 'web/comum.js', 'web/login.js', 'web/orcamento.js',
+  'web/inicio.js', 'web/instalar.js', 'web/tarefas.js', 'web/assistente.js'];
 let faltando = 0;
 
 const todoCodigo = arquivos.map((a) => fs.readFileSync(a, 'utf8')).join('\n');

@@ -1,6 +1,9 @@
 /* Tela de entrada de nota: ler a nota, conferir item a item e gravar no Solus. */
 
-import { $, $$, dinheiro, escapar, mostrarTela, avisar } from './comum.js';
+import {
+  $, $$, dinheiro, escapar, mostrarTela, avisar,
+  animarSeForAPrimeiraVez, permitirAnimarDeNovo,
+} from './comum.js';
 import { icone } from './icones.js';
 import { abrirConfiguracaoDeLojas } from './login.js';
 
@@ -222,6 +225,8 @@ function desenharItens() {
   }
 
   lista.innerHTML = visiveis.map(({ item, indice }) => desenharItem(item, indice)).join('');
+  // anima so na primeira montagem: redesenhar a cada ajuste piscaria a tela toda
+  animarSeForAPrimeiraVez(lista);
   ligarEventosDosItens();
 }
 
@@ -655,6 +660,7 @@ $('#btn-voltar').addEventListener('click', () => {
   if (confirm('Cancelar esta nota? O que foi conferido será perdido.')) {
     estado.conferencia = null;
     estado.arquivos = [];
+    permitirAnimarDeNovo($('#lista-itens'));
     desenharArquivos();
     mostrarTela('enviar');
   }
@@ -733,6 +739,7 @@ function mostrarResultado(resultado) {
     estado.arquivos = [];
     estado.conferencia = null;
     $('#observacao').value = '';
+    permitirAnimarDeNovo($('#lista-itens'));
     desenharArquivos();
     mostrarTela('enviar');
   });

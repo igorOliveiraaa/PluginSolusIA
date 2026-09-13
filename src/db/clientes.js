@@ -6,7 +6,7 @@
 
 import { consultar, emTransacao, paraNumero, paraTextoBR, campoTexto, lerTexto, gravarTexto } from './firebird.js';
 import { colunasDe } from './produtos.js';
-import { formatarCnpj, limparCnpj } from '../leitura/cnpj.js';
+import { formatarCnpj } from '../leitura/cnpj.js';
 
 const CAMPOS_CLIENTE = `CODIGO, ${campoTexto('NOME', 50)}, ${campoTexto('FANTASIA', 40)},
   CPFCNPJ, INSCRICAO, ${campoTexto('RUA', 60)}, NUMERO, ${campoTexto('BAIRRO', 70)},
@@ -93,6 +93,21 @@ async function proximoCodigoCliente(executar = consultar) {
   return String(Math.max(candidato, paraNumero(maior[0]?.MAIOR) + 1));
 }
 
+/**
+ * Escreve a inscricao estadual do jeito que este Solus ja guarda.
+ * Em SP o banco tem "209.392.951.110"; a consulta publica devolve so os digitos.
+ */
+function formatarInscricao(valor, uf) {
+  const texto = String(valor || '').trim();
+  if (!texto) return '';
+  if (/^isent/i.test(texto)) return 'ISENTO';
+  const digitos = texto.replace(/\D/g, '');
+  if (String(uf || '').toUpperCase() === 'SP' && digitos.length === 12) {
+    return digitos.replace(/^(\d{3})(\d{3})(\d{3})(\d{3})$/, '$1.$2.$3.$4');
+  }
+  return texto;
+}
+
 function hoje() {
   const d = new Date();
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
@@ -123,9 +138,10 @@ export async function cadastrarCliente(dados, operador = '') {
       NOME: gravarTexto(String(dados.razaoSocial || dados.nome || '').slice(0, 50)),
       FANTASIA: gravarTexto(String(dados.fantasia || '').slice(0, 40)),
       CPFCNPJ: numeros.length === 14 ? formatarCnpj(numeros) : documento.slice(0, 20),
-      INSCRICAO: String(dados.inscricaoEstadual || dados.inscricao || '').slice(0, 20),
+      INSCRICAO: formatarInscricao(dados.inscricaoEstadual || dados.inscricao, dados.uf).slice(0, 20),
       RUA: gravarTexto(String(dados.rua || '').slice(0, 60)),
       NUMERO: String(dados.numero || '').slice(0, 8),
+      COMPLEMENTO: gravarTexto(String(dados.complemento || '').slice(0, 50)),
       BAIRRO: gravarTexto(String(dados.bairro || '').slice(0, 70)),
       CIDADE: gravarTexto(String(dados.cidade || '').slice(0, 30)),
       UF: String(dados.uf || '').slice(0, 2).toUpperCase(),
@@ -200,24 +216,33 @@ export async function ultimasCompras(codigoCliente, limite = 40) {
 }
 
 /**
- * Ultimo preco que ESTE cliente pagou em UM produto.
- * `chaveProduto` e o que o Solus guarda em ITEMPEDIDO.PRODUTO: normalmente o
- * codigo de barras, e para produto sem barras o proprio codigo.
+ * As chaves viram uma lista de "?" para o IN do SQL.
+ * O Solus grava em ITEMPEDIDO.PRODUTO ora o codigo de barras, ora o codigo curto,
+ * ora o codigo com zeros na frente ("000000012743"). Procurar por uma forma so
+ * era o motivo de "esse cliente pagou" aparecer vazio mesmo com o cliente escolhido.
  */
-export async function ultimoPrecoDoCliente(codigoCliente, chaveProduto) {
+function listaDeChaves(chaves) {
+  const lista = (Array.isArray(chaves) ? chaves : [chaves])
+    .map((c) => String(c || '').trim())
+    .filter(Boolean);
+  return [...new Set(lista)].slice(0, 8);
+}
+
+/** Ultimo preco que ESTE cliente pagou neste produto. */
+export async function ultimoPrecoDoCliente(codigoCliente, chaves) {
   const cod = String(codigoCliente || '').trim();
-  const chave = String(chaveProduto || '').trim();
-  if (!cod || !chave) return null;
+  const lista = listaDeChaves(chaves);
+  if (!cod || !lista.length) return null;
 
   const linhas = await consultar(
-    `SELECT FIRST 1 I.PRECO, I.QTD, I.DATA
+    `SELECT FIRST 1 I.PRECO, I.QTD, I.DATA, P.NUMERO
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
-      WHERE TRIM(P.CODCLIENTE) = ? AND TRIM(I.PRODUTO) = ?
+      WHERE TRIM(P.CODCLIENTE) = ? AND TRIM(I.PRODUTO) IN (${lista.map(() => '?').join(', ')})
         AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
         AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
       ORDER BY I.DATA DESC`,
-    [cod, chave]
+    [cod, ...lista]
   );
 
   if (!linhas.length) return null;
@@ -225,23 +250,24 @@ export async function ultimoPrecoDoCliente(codigoCliente, chaveProduto) {
     preco: paraNumero(linhas[0].PRECO),
     quantidade: paraNumero(linhas[0].QTD),
     data: linhas[0].DATA,
+    pedido: Number(linhas[0].NUMERO) || null,
   };
 }
 
 /** Ultimo preco praticado na loja para o produto, para qualquer cliente. */
-export async function ultimoPrecoDaLoja(chaveProduto) {
-  const chave = String(chaveProduto || '').trim();
-  if (!chave) return null;
+export async function ultimoPrecoDaLoja(chaves) {
+  const lista = listaDeChaves(chaves);
+  if (!lista.length) return null;
 
   const linhas = await consultar(
     `SELECT FIRST 1 I.PRECO, I.DATA
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
-      WHERE TRIM(I.PRODUTO) = ?
+      WHERE TRIM(I.PRODUTO) IN (${lista.map(() => '?').join(', ')})
         AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
         AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
       ORDER BY I.DATA DESC`,
-    [chave]
+    lista
   );
 
   if (!linhas.length) return null;

@@ -2,6 +2,7 @@
 
 import {
   $, $$, api, dinheiro, escapar, numeroBR, dataBR, avisar, mostrarTela, aoDigitar, sessao,
+  animarSeForAPrimeiraVez, permitirAnimarDeNovo,
 } from './comum.js';
 import { icone } from './icones.js';
 
@@ -68,6 +69,30 @@ async function escolherCliente(codigo) {
     $('#busca-cliente').value = '';
     desenharClienteEscolhido(compras);
     carregarOpcoesDePagamento();
+    await aplicarClienteNoOrcamento();
+  } catch (erro) {
+    avisar(erro.message, 'erro');
+  }
+}
+
+/**
+ * Com o orcamento ja montado, trocar (ou escolher) o cliente refaz o historico de
+ * preco de todos os itens no servidor. Sem isto, quem escolhia o cliente depois de
+ * montar a lista via "esse cliente pagou" sempre vazio.
+ */
+async function aplicarClienteNoOrcamento() {
+  if (!estado.id || !estado.orcamento) return;
+  try {
+    const { orcamento } = await api('/api/orcamento/cliente', {
+      method: 'POST',
+      body: JSON.stringify({ id: estado.id, codigoCliente: estado.cliente?.codigo || '' }),
+    });
+    estado.orcamento = orcamento;
+    desenharOrcamento();
+    mostrarTela('conferir-orcamento');
+    avisar(estado.cliente
+      ? `Preços conferidos com o histórico de ${estado.cliente.nome}.`
+      : 'Orçamento voltou para consumidor.', 'ok');
   } catch (erro) {
     avisar(erro.message, 'erro');
   }
@@ -97,9 +122,11 @@ function desenharClienteEscolhido(compras = []) {
       <button class="botao secundario" id="btn-tirar-cliente">Trocar</button>
     </div>`;
 
-  $('#btn-tirar-cliente').addEventListener('click', () => {
+  $('#btn-tirar-cliente').addEventListener('click', async () => {
     estado.cliente = null;
     desenharClienteEscolhido();
+    carregarOpcoesDePagamento();
+    await aplicarClienteNoOrcamento();
   });
 }
 
@@ -182,26 +209,78 @@ function desenharOrcamento() {
   const resumo = orc.resumo;
   const podeVerCusto = sessao.operador?.permissoes?.verCusto;
 
+  const faltam = resumo.precisamEscolha;
   $('#cabecalho-orcamento').innerHTML = `
-    <h2>${escapar(orc.cliente?.nome || 'Consumidor')}</h2>
-    <p class="ajuda" style="margin:0">
-      ${resumo.totalItens} ${resumo.totalItens === 1 ? 'item' : 'itens'} na lista
-      ${resumo.precisamEscolha ? ` · <strong style="color:var(--aviso)">${resumo.precisamEscolha} precisam que você escolha o produto</strong>` : ''}
-    </p>
+    <div class="cliente-cartao">
+      <div>
+        <h2 style="margin:0">${escapar(orc.cliente?.nome || 'Consumidor')}</h2>
+        <p class="ajuda" style="margin:2px 0 0">
+          ${resumo.totalItens} ${resumo.totalItens === 1 ? 'item' : 'itens'} na lista
+          ${orc.cliente ? '' : ' · sem cliente, não dá para ver o último preço dele'}
+        </p>
+      </div>
+      <button class="botao secundario" id="btn-trocar-cliente-orcamento">
+        ${orc.cliente ? 'Trocar cliente' : 'Escolher cliente'}
+      </button>
+    </div>
+    ${faltam
+      ? `<div class="item-aviso" style="margin-top:10px">
+           <strong>${faltam} ${faltam === 1 ? 'item precisa' : 'itens precisam'} que você escolha o produto.</strong>
+           Eles estão marcados abaixo e só entram no orçamento depois da escolha.
+         </div>`
+      : ''}
     ${orc.observacoesDaLista
       ? `<div class="item-aviso info" style="margin-top:10px">Observação da leitura: ${escapar(orc.observacoesDaLista)}</div>`
       : ''}`;
 
-  $('#itens-orcamento').innerHTML = orc.itens
+  $('#btn-trocar-cliente-orcamento').addEventListener('click', () => {
+    mostrarTela('orcamento');
+    $('#busca-cliente').focus();
+  });
+
+  const lista = $('#itens-orcamento');
+  lista.innerHTML = orc.itens
     .map((item, indice) => desenharItemOrcamento(item, indice, podeVerCusto)).join('');
+
+  // a animação de entrada roda só quando a lista aparece pela primeira vez;
+  // a cada mudança de quantidade ela ficaria piscando a tela inteira
+  animarSeForAPrimeiraVez(lista);
 
   ligarEventosOrcamento();
   atualizarTotal();
 }
 
+/** Um quadradinho de comparacao (rotulo, valor e a explicacao embaixo). */
+function bloco(titulo, valor, detalhe = '', classe = '') {
+  return `
+    <div class="comparacao-bloco">
+      <div class="comparacao-titulo">${escapar(titulo)}</div>
+      <div class="comparacao-valor">${valor}</div>
+      ${detalhe ? `<div class="comparacao-detalhe ${classe}">${detalhe}</div>` : ''}
+    </div>`;
+}
+
+/**
+ * Etiquetas que explicam por que a opcao apareceu.
+ * E o que torna a escolha rapida: em vez de ler seis nomes parecidos, a pessoa
+ * ve "é o que mais sai" e "esse cliente já levou".
+ */
+function etiquetasDaOpcao(produto, posicao) {
+  const etiquetas = [];
+  if (posicao === 0) etiquetas.push('<span class="etiqueta ok">mais provável</span>');
+  if (produto.motivo) etiquetas.push(`<span class="etiqueta info">${escapar(produto.motivo)}</span>`);
+  if (produto.cancelado) etiquetas.push('<span class="etiqueta erro">cancelado</span>');
+  else if (produto.estoque <= 0) etiquetas.push('<span class="etiqueta aviso">sem estoque</span>');
+  if (produto.vendaAtual <= 0) etiquetas.push('<span class="etiqueta aviso">sem preço</span>');
+  return etiquetas.length ? `<span class="item-etiquetas">${etiquetas.join('')}</span>` : '';
+}
+
 function desenharItemOrcamento(item, indice, podeVerCusto) {
   const escolhido = Boolean(item.produto);
-  const fora = !item.incluir;
+  // "fora" e so o item que a pessoa TIROU da lista. Item esperando escolha nao e
+  // item apagado - era isso que deixava a tela inteira meio transparente quando
+  // a ferramenta ficava em duvida.
+  const fora = escolhido && !item.incluir;
 
   let classe = 'item';
   if (fora) classe += ' ignorado';
@@ -214,13 +293,14 @@ function desenharItemOrcamento(item, indice, podeVerCusto) {
 
   if (!escolhido) {
     const opcoes = item.opcoes?.length
-      ? item.opcoes.map((p) => `
-          <button class="opcao-produto" data-escolher="${indice}" data-codigo="${escapar(p.codigo)}">
-            <strong>${escapar(p.descricao)}</strong><br>
-            <span class="ajuda">${dinheiro(p.vendaAtual)} · estoque ${numeroBR(p.estoque)}
-              ${p.estoque <= 0 ? ' · <span style="color:var(--perigo)">sem estoque</span>' : ''}</span>
+      ? item.opcoes.map((p, posicao) => `
+          <button class="opcao-produto${posicao === 0 ? ' sugerida' : ''}"
+                  data-escolher="${indice}" data-codigo="${escapar(p.codigo)}">
+            <strong>${escapar(p.descricao)}</strong>
+            ${etiquetasDaOpcao(p, posicao)}
+            <span class="ajuda">${dinheiro(p.vendaAtual)} · estoque ${numeroBR(p.estoque)}</span>
           </button>`).join('')
-      : '<p class="ajuda">Não achei nada parecido no estoque.</p>';
+      : '<p class="ajuda">Não achei nada parecido no estoque. Use "Procurar outro".</p>';
 
     return `
       <div class="${classe}" data-indice="${indice}">
@@ -232,6 +312,7 @@ function desenharItemOrcamento(item, indice, podeVerCusto) {
               ${item.unidade ? escapar(item.unidade) : ''}
             </div>
           </div>
+          <span class="etiqueta aviso">escolha o produto</span>
         </div>
         ${avisos}
         <div class="escolha-titulo">Qual desses é?</div>
@@ -243,29 +324,43 @@ function desenharItemOrcamento(item, indice, podeVerCusto) {
       </div>`;
   }
 
-  const custo = podeVerCusto && item.custo
-    ? `<div class="comparacao-bloco">
-         <div class="comparacao-titulo">Custo / margem</div>
-         <div class="comparacao-valor">${dinheiro(item.custo)}</div>
-         <div class="comparacao-detalhe ${item.margem < 15 ? 'subiu' : ''}">
-           margem ${item.margem != null ? item.margem.toFixed(0) + '%' : '-'}
-         </div>
-       </div>`
-    : '';
+  // Os quatro blocos aparecem juntos: preco de tabela, o que ESTE cliente pagou,
+  // a ultima venda da loja e o custo com a margem. Antes so um deles aparecia por
+  // vez, e quem escolhia o produto na tela nao via nenhum.
+  const blocos = [];
 
-  const historico = item.ultimoPrecoCliente
-    ? `<div class="comparacao-bloco">
-         <div class="comparacao-titulo">Esse cliente pagou</div>
-         <div class="comparacao-valor">${dinheiro(item.ultimoPrecoCliente.preco)}</div>
-         <div class="comparacao-detalhe">em ${dataBR(item.ultimoPrecoCliente.data)}</div>
-       </div>`
-    : item.ultimoPrecoLoja
-      ? `<div class="comparacao-bloco">
-           <div class="comparacao-titulo">Última venda na loja</div>
-           <div class="comparacao-valor">${dinheiro(item.ultimoPrecoLoja.preco)}</div>
-           <div class="comparacao-detalhe">em ${dataBR(item.ultimoPrecoLoja.data)}</div>
-         </div>`
-      : '';
+  blocos.push(bloco('Preço de tabela', dinheiro(item.precoTabela),
+    `estoque ${numeroBR(item.produto.estoque)}`));
+
+  if (item.ultimoPrecoCliente) {
+    const diferenca = item.precoTabela > 0 && item.ultimoPrecoCliente.preco > 0
+      ? ((item.precoUnitario - item.ultimoPrecoCliente.preco) / item.ultimoPrecoCliente.preco) * 100
+      : null;
+    blocos.push(bloco(
+      'Esse cliente pagou',
+      dinheiro(item.ultimoPrecoCliente.preco),
+      `em ${dataBR(item.ultimoPrecoCliente.data)}`
+        + (diferenca != null && Math.abs(diferenca) >= 1
+          ? ` · hoje ${diferenca > 0 ? '+' : ''}${diferenca.toFixed(0)}%` : ''),
+      diferenca != null && diferenca > 0 ? 'subiu' : ''
+    ));
+  } else if (estado.orcamento?.cliente) {
+    blocos.push(bloco('Esse cliente pagou', '—', 'nunca levou este item'));
+  }
+
+  if (item.ultimoPrecoLoja) {
+    blocos.push(bloco('Última venda na loja', dinheiro(item.ultimoPrecoLoja.preco),
+      `em ${dataBR(item.ultimoPrecoLoja.data)}`));
+  }
+
+  if (podeVerCusto) {
+    blocos.push(bloco(
+      'Custo / margem',
+      item.custo > 0 ? dinheiro(item.custo) : '—',
+      item.margem != null ? `margem ${item.margem.toFixed(0)}%` : 'sem custo no cadastro',
+      item.margem != null && item.margem < 15 ? 'subiu' : ''
+    ));
+  }
 
   return `
     <div class="${classe}" data-indice="${indice}">
@@ -280,14 +375,7 @@ function desenharItemOrcamento(item, indice, podeVerCusto) {
       </div>
       ${avisos}
 
-      <div class="comparacao">
-        <div class="comparacao-bloco">
-          <div class="comparacao-titulo">Preço de tabela</div>
-          <div class="comparacao-valor">${dinheiro(item.precoTabela)}</div>
-          <div class="comparacao-detalhe">estoque ${numeroBR(item.produto.estoque)}</div>
-        </div>
-        ${historico || custo}
-      </div>
+      <div class="comparacao">${blocos.join('')}</div>
 
       <div class="linha-quantidade">
         <label class="campo">
@@ -406,16 +494,17 @@ async function procurarProduto() {
 
   area.innerHTML = '<p class="ajuda">Procurando...</p>';
   try {
-    const { produtos } = await api('/api/orcamento/buscar-produto?q=' + encodeURIComponent(termo));
+    const { produtos } = await api('/api/orcamento/buscar-produto?q=' + encodeURIComponent(termo)
+      + (estado.id ? '&id=' + encodeURIComponent(estado.id) : ''));
     if (!produtos.length) {
       area.innerHTML = '<p class="ajuda">Nenhum produto encontrado.</p>';
       return;
     }
-    area.innerHTML = produtos.map((p) => `
+    area.innerHTML = produtos.map((p, posicao) => `
       <button data-usar="${escapar(p.codigo)}">
-        <strong>${escapar(p.descricao)}</strong><br>
-        cod. ${escapar(p.codigo)} · ${dinheiro(p.vendaAtual)} · estoque ${numeroBR(p.estoque)}
-        ${p.cancelado ? ' · <span style="color:var(--perigo)">CANCELADO</span>' : ''}
+        <strong>${escapar(p.descricao)}</strong>
+        ${etiquetasDaOpcao(p, posicao)}
+        <br>cod. ${escapar(p.codigo)} · ${dinheiro(p.vendaAtual)} · estoque ${numeroBR(p.estoque)}
       </button>`).join('');
 
     area.querySelectorAll('[data-usar]').forEach((botao) => {
@@ -508,7 +597,12 @@ function aproveitarObservacao() {
   if (!$('#valor-frete').value) {
     const frete = texto.match(/frete\s*(?:de\s*)?r?\$?\s*([\d.,]+)/);
     if (frete) {
-      const valor = Number(frete[1].replace(/./g, '').replace(',', '.'));
+      // "1.234,56" -> 1234.56 e "50" -> 50. (Antes isto era um replace com "." solto,
+      // que apagava TODOS os caracteres e o frete escrito na observação nunca entrava.)
+      const escrito = frete[1];
+      const valor = Number(escrito.includes(',')
+        ? escrito.replace(/\./g, '').replace(',', '.')
+        : escrito);
       if (valor > 0) {
         $('#valor-frete').value = valor.toFixed(2);
         if ($('#modalidade-frete').value === '9') $('#modalidade-frete').value = '0';
@@ -679,6 +773,7 @@ function recomecar() {
   $('#texto-lista').value = '';
   $('#obs-lista').value = '';
   $('#obs-orcamento').value = '';
+  permitirAnimarDeNovo($('#itens-orcamento'));
   desenharArquivosLista();
   mostrarTela('orcamento');
 }
@@ -723,30 +818,53 @@ async function consultarCnpj() {
       return;
     }
 
+    // Tudo que a nota fiscal exige fica EDITÁVEL e já preenchido. A Receita às
+    // vezes não devolve número, CEP ou inscrição estadual — e nota sem endereço
+    // completo é recusada pela Sefaz.
+    const campo = (id, rotulo, valor, dica = '', tipo = 'text') => `
+      <label class="campo">
+        <span>${rotulo}</span>
+        <input type="${tipo}" id="${id}" value="${escapar(valor || '')}" placeholder="${escapar(dica)}">
+      </label>`;
+
     area.innerHTML = `
       ${!dados.ativa
         ? `<div class="item-aviso erro">Atenção: essa empresa está <strong>${escapar(dados.situacao)}</strong> na Receita.</div>`
         : ''}
+      ${dados.faltando?.length
+        ? `<div class="item-aviso">A Receita não informou <strong>${escapar(dados.faltando.join(', '))}</strong>.
+             Preencha abaixo antes de cadastrar: sem o endereço completo a nota fiscal dá erro na Sefaz.</div>`
+        : ''}
+
       <div class="dados-empresa">
         <div><span>Razão social</span><strong>${escapar(dados.razaoSocial)}</strong></div>
         ${dados.fantasia ? `<div><span>Nome fantasia</span><strong>${escapar(dados.fantasia)}</strong></div>` : ''}
         <div><span>CNPJ</span><strong>${escapar(dados.cnpj)}</strong></div>
-        ${dados.inscricaoEstadual ? `<div><span>Inscrição estadual</span><strong>${escapar(dados.inscricaoEstadual)}</strong></div>` : ''}
-        <div><span>Endereço</span><strong>${escapar([dados.rua, dados.numero].filter(Boolean).join(', ') || '(não informado)')}</strong></div>
-        <div><span>Bairro / Cidade</span><strong>${escapar([dados.bairro, dados.cidade + '/' + dados.uf].filter(Boolean).join(' - '))}</strong></div>
-        <div><span>CEP</span><strong>${escapar(dados.cep)}</strong></div>
-        ${dados.telefone ? `<div><span>Telefone</span><strong>${escapar(dados.telefone)}</strong></div>` : ''}
-        ${dados.email ? `<div><span>E-mail</span><strong>${escapar(dados.email)}</strong></div>` : ''}
         <div><span>Atividade</span><strong>${escapar(dados.atividade)}</strong></div>
       </div>
-      <label class="campo">
-        <span>Celular / WhatsApp <em>(a Receita não informa)</em></span>
-        <input type="tel" id="celular-cliente" placeholder="(14) 99999-9999">
-      </label>
-      <label class="campo">
-        <span>Contato <em>(nome de quem compra)</em></span>
-        <input type="text" id="contato-cliente" placeholder="opcional">
-      </label>
+
+      <h3 style="font-size:15px;margin:16px 0 0">Dados que saem na nota</h3>
+      ${campo('ie-cliente', 'Inscrição estadual <em>(ou ISENTO)</em>', dados.inscricaoEstadual, 'ISENTO')}
+      ${campo('rua-cliente', 'Rua / avenida', dados.rua, 'ex.: RUA VOLUNTARIOS DA FRANCA')}
+      <div class="linha-dupla">
+        ${campo('numero-cliente', 'Número', dados.numero, 'ex.: 1465')}
+        ${campo('cep-cliente', 'CEP', dados.cep, '00000-000', 'tel')}
+      </div>
+      ${campo('complemento-cliente', 'Complemento <em>(opcional)</em>', dados.complemento, 'sala, galpão...')}
+      ${campo('bairro-cliente', 'Bairro', dados.bairro, '')}
+      <div class="linha-dupla">
+        ${campo('cidade-cliente', 'Cidade', dados.cidade, '')}
+        ${campo('uf-cliente', 'Estado <em>(UF)</em>', dados.uf, 'SP')}
+      </div>
+
+      <h3 style="font-size:15px;margin:16px 0 0">Contato</h3>
+      <div class="linha-dupla">
+        ${campo('telefone-cliente', 'Telefone', dados.telefone, '', 'tel')}
+        ${campo('celular-cliente', 'Celular / WhatsApp <em>(a Receita não informa)</em>', '', '(14) 99999-9999', 'tel')}
+      </div>
+      ${campo('email-cliente', 'E-mail', dados.email, '', 'email')}
+      ${campo('contato-cliente', 'Contato <em>(nome de quem compra)</em>', '', 'opcional')}
+
       <button class="botao principal largura-total" id="btn-salvar-cliente">
         Cadastrar no Solus
       </button>`;
@@ -759,17 +877,45 @@ async function consultarCnpj() {
 
 async function salvarCliente(dados) {
   const botao = $('#btn-salvar-cliente');
+  const ler = (id) => ($(`#${id}`)?.value || '').trim();
+
+  // o que foi corrigido na tela vale mais do que o que veio da Receita
+  const cadastro = {
+    ...dados,
+    inscricaoEstadual: ler('ie-cliente'),
+    rua: ler('rua-cliente'),
+    numero: ler('numero-cliente'),
+    complemento: ler('complemento-cliente'),
+    bairro: ler('bairro-cliente'),
+    cidade: ler('cidade-cliente'),
+    uf: ler('uf-cliente').toUpperCase(),
+    cep: ler('cep-cliente'),
+    telefone: ler('telefone-cliente'),
+    celular: ler('celular-cliente'),
+    email: ler('email-cliente'),
+    contato: ler('contato-cliente'),
+  };
+
+  const faltando = [
+    [cadastro.rua, 'a rua'], [cadastro.numero, 'o número'], [cadastro.bairro, 'o bairro'],
+    [cadastro.cidade, 'a cidade'], [cadastro.uf, 'o estado'], [cadastro.cep, 'o CEP'],
+  ].filter(([valor]) => !valor).map(([, rotulo]) => rotulo);
+
+  if (faltando.length) {
+    const segue = confirm(
+      `Ainda falta ${faltando.join(', ')}.\n\n`
+      + 'A nota fiscal desse cliente vai dar erro na Sefaz sem isso.\n\nCadastrar assim mesmo?'
+    );
+    if (!segue) return;
+  }
+
   botao.disabled = true;
   botao.textContent = 'Cadastrando...';
 
   try {
     const resposta = await api('/api/clientes', {
       method: 'POST',
-      body: JSON.stringify({
-        ...dados,
-        celular: $('#celular-cliente')?.value || '',
-        contato: $('#contato-cliente')?.value || '',
-      }),
+      body: JSON.stringify(cadastro),
     });
 
     avisar(resposta.jaExistia

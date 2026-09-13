@@ -4,24 +4,45 @@
 
 import { consultar, paraNumero, paraTextoBR, campoTexto, lerTexto } from './firebird.js';
 import { carregarConfig } from '../config.js';
+import { procurarNoCatalogo, motivoDaSugestao } from './catalogo.js';
 
 const cacheColunas = new Map();
 
-/** Lista as colunas que a tabela realmente tem neste banco. */
-export async function colunasDe(tabela) {
+/** Colunas da tabela neste banco, com o tamanho de cada uma. */
+async function estruturaDe(tabela) {
   const nome = tabela.toUpperCase();
   // cada loja tem o seu banco, e os bancos podem ser de versoes diferentes do Solus
   const chaveCache = `${carregarConfig().lojaId || 'sem-loja'}:${nome}`;
   if (cacheColunas.has(chaveCache)) return cacheColunas.get(chaveCache);
   const linhas = await consultar(
-    `SELECT TRIM(RF.RDB$FIELD_NAME) AS COLUNA
+    `SELECT TRIM(RF.RDB$FIELD_NAME) AS COLUNA, F.RDB$FIELD_LENGTH AS TAMANHO
        FROM RDB$RELATION_FIELDS RF
+       JOIN RDB$FIELDS F ON F.RDB$FIELD_NAME = RF.RDB$FIELD_SOURCE
       WHERE RF.RDB$RELATION_NAME = ?`,
     [nome]
   );
-  const conjunto = new Set(linhas.map((l) => String(l.COLUNA).trim().toUpperCase()));
-  cacheColunas.set(chaveCache, conjunto);
-  return conjunto;
+  const estrutura = {
+    nomes: new Set(linhas.map((l) => String(l.COLUNA).trim().toUpperCase())),
+    tamanhos: new Map(linhas.map((l) => [String(l.COLUNA).trim().toUpperCase(), Number(l.TAMANHO) || 0])),
+  };
+  cacheColunas.set(chaveCache, estrutura);
+  return estrutura;
+}
+
+/** Lista as colunas que a tabela realmente tem neste banco. */
+export async function colunasDe(tabela) {
+  return (await estruturaDe(tabela)).nomes;
+}
+
+/**
+ * Tamanho da coluna no banco.
+ * Serve para nao mandar texto maior do que cabe: o Firebird responde
+ * "string right truncation" e derruba a consulta inteira. Foi o que acontecia
+ * ao procurar um codigo de barras de 13 digitos em PRODUTO.CODIGO, que tem 6.
+ */
+export async function tamanhoDaColuna(tabela, coluna) {
+  const { tamanhos } = await estruturaDe(tabela);
+  return tamanhos.get(String(coluna).toUpperCase()) || 0;
 }
 
 export function limparCacheColunas() {
@@ -181,11 +202,34 @@ export async function buscarIrmaos(codigoProduto) {
 export async function buscarPorCodigo(codigo) {
   const cod = String(codigo || '').trim();
   if (!cod) return null;
+
+  // codigo maior do que o campo do banco nao existe - e ainda derruba a consulta
+  const cabe = await tamanhoDaColuna('PRODUTO', 'CODIGO');
+  if (cabe && cod.length > cabe) return null;
+
   const linhas = await consultar(
     `SELECT FIRST 1 ${CAMPOS_PRODUTO} FROM PRODUTO WHERE TRIM(CODIGO) = ?`,
     [cod]
   );
   return montarProduto(linhas[0]);
+}
+
+/** Varios produtos de uma vez, pelo codigo (usado depois de ordenar a busca). */
+export async function buscarVariosPorCodigo(codigos) {
+  const lista = [...new Set((codigos || []).map((c) => String(c || '').trim()).filter(Boolean))];
+  if (!lista.length) return [];
+
+  const cabe = await tamanhoDaColuna('PRODUTO', 'CODIGO');
+  const validos = cabe ? lista.filter((c) => c.length <= cabe) : lista;
+  if (!validos.length) return [];
+
+  const marcadores = validos.map(() => '?').join(', ');
+  const linhas = await consultar(
+    `SELECT FIRST ${validos.length} ${CAMPOS_PRODUTO} FROM PRODUTO
+      WHERE TRIM(CODIGO) IN (${marcadores})`,
+    validos
+  );
+  return linhas.map(montarProduto).filter(Boolean);
 }
 
 /**
@@ -247,10 +291,49 @@ function palavrasDeBusca(descricao, quantidade = 3) {
 }
 
 /**
- * Procura por descricao parecida. Usa as palavras mais "fortes" do nome
- * (as maiores) para nao trazer o catalogo inteiro.
+ * Procura por descricao.
+ *
+ * Quem faz o trabalho e o indice em memoria (`catalogo.js`): ele ignora acento e
+ * cedilha, entende que "5LT" e "5 litros" sao a mesma coisa, aguenta erro de
+ * digitacao e poe na frente o que a loja mais vende e o que saiu por ultimo.
+ * `preferir` sao codigos que este cliente ja comprou - na duvida, ganham.
+ *
+ * Se o indice nao subir (banco fora do ar na hora de montar), cai sozinho na
+ * busca antiga por LIKE, que e pior mas nao deixa a tela sem resposta.
  */
-export async function buscarPorDescricao(descricao, limite = 8) {
+export async function buscarPorDescricao(descricao, limite = 8, opcoes = {}) {
+  const texto = String(descricao || '').trim();
+  if (!texto) return [];
+
+  try {
+    const achados = await procurarNoCatalogo(texto, { limite, preferir: opcoes.preferir || [] });
+    if (!achados.length) return [];
+
+    // preco e estoque vem frescos do banco: o indice serve so para escolher quais
+    const produtos = await buscarVariosPorCodigo(achados.map((a) => a.codigo));
+    const porCodigo = new Map(produtos.map((p) => [p.codigo, p]));
+
+    return achados.map((achado) => {
+      const produto = porCodigo.get(achado.codigo);
+      if (!produto) return null;
+      return {
+        ...produto,
+        nota: achado.nota,
+        cobertura: achado.cobertura,
+        vendidoNoPeriodo: achado.vendidoNoPeriodo,
+        vezesVendido: achado.vezesVendido,
+        ultimaVenda: achado.ultimaVenda,
+        motivo: motivoDaSugestao(achado),
+      };
+    }).filter(Boolean);
+  } catch (erro) {
+    console.error('[busca] indice do catalogo indisponivel, usando LIKE:', erro?.message || erro);
+    return buscarPorDescricaoComLike(texto, limite);
+  }
+}
+
+/** Busca antiga, por LIKE no banco. Fica como reserva do indice. */
+async function buscarPorDescricaoComLike(descricao, limite = 8) {
   const { todas, fortes } = palavrasDeBusca(descricao);
   if (!todas.length) return [];
 
@@ -277,7 +360,12 @@ export async function buscarPorDescricao(descricao, limite = 8) {
 
   for (const tentativa of tentativas) {
     const linhas = await procurar(tentativa.palavras, tentativa.ignorarAcento);
-    if (linhas.length) return linhas.map(montarProduto).filter(Boolean);
+    if (!linhas.length) continue;
+    // mesmo na reserva, quem chama espera "nota" e "cobertura" para decidir
+    return linhas.map(montarProduto).filter(Boolean).map((produto) => {
+      const parecido = semelhanca(descricao, produto.descricao);
+      return { ...produto, nota: parecido, cobertura: parecido, motivo: '' };
+    }).sort((a, b) => b.nota - a.nota);
   }
   return [];
 }

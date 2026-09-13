@@ -7,6 +7,7 @@
 //   1. tenta de novo sozinha, esperando um pouco mais a cada vez;
 //   2. se o modelo continuar cheio ou tiver sido aposentado, passa para o reserva.
 
+import crypto from 'node:crypto';
 import { carregarConfig } from '../config.js';
 
 const ENDERECO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -27,6 +28,44 @@ function lerChave() {
   return { chave, modelo };
 }
 
+// ---------------------------------------------------------------------------
+// Economia: a mesma pergunta nao e paga duas vezes
+// ---------------------------------------------------------------------------
+//
+// Acontece direto: a pessoa manda a foto da nota, olha a conferencia, volta e
+// manda a MESMA foto de novo (ou o navegador repete o envio). Guardando a
+// resposta por alguns minutos, a segunda vez sai de graca e na hora.
+
+const TEMPO_DA_LEMBRANCA = 15 * 60 * 1000;
+const MAXIMO_LEMBRADO = 30;
+const lembranca = new Map();
+
+function chaveDoPedido(corpo) {
+  return crypto.createHash('sha256').update(JSON.stringify(corpo)).digest('hex');
+}
+
+function lembrar(chave, dados) {
+  lembranca.set(chave, { dados, quando: Date.now() });
+  // guarda pouca coisa: leitura de nota com foto ocupa memoria
+  while (lembranca.size > MAXIMO_LEMBRADO) {
+    lembranca.delete(lembranca.keys().next().value);
+  }
+}
+
+function lembrado(chave) {
+  const guardado = lembranca.get(chave);
+  if (!guardado) return null;
+  if (Date.now() - guardado.quando > TEMPO_DA_LEMBRANCA) {
+    lembranca.delete(chave);
+    return null;
+  }
+  return guardado.dados;
+}
+
+export function esquecerRespostasDaIA() {
+  lembranca.clear();
+}
+
 async function detalheDoErro(resposta) {
   try {
     return (await resposta.json())?.error?.message || '';
@@ -39,11 +78,21 @@ async function detalheDoErro(resposta) {
  * Manda o corpo para o generateContent e devolve o JSON da resposta.
  * `corpo` e exatamente o que o Gemini espera (contents, tools, generationConfig...).
  */
-export async function chamarGemini(corpo) {
+export async function chamarGemini(corpo, opcoes = {}) {
   const { chave, modelo } = lerChave();
-  const candidatos = [modelo, ...MODELOS_RESERVA.filter((m) => m !== modelo)];
+  // `preferir` deixa cada tarefa pedir o modelo mais barato que da conta dela
+  const primeiro = opcoes.preferir || modelo;
+  const candidatos = [primeiro, ...MODELOS_RESERVA.filter((m) => m !== primeiro)];
+
+  const podeLembrar = opcoes.lembrar !== false;
+  const chaveDaLembranca = podeLembrar ? chaveDoPedido(corpo) : '';
+  if (podeLembrar) {
+    const guardado = lembrado(chaveDaLembranca);
+    if (guardado) return { ...guardado, veioDaLembranca: true };
+  }
 
   let ultimoErro = null;
+  let corpoAtual = corpo;
 
   for (const candidato of candidatos) {
     for (let tentativa = 0; tentativa <= ESPERAS_MS.length; tentativa += 1) {
@@ -54,7 +103,7 @@ export async function chamarGemini(corpo) {
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
-            body: JSON.stringify(corpo),
+            body: JSON.stringify(corpoAtual),
             signal: AbortSignal.timeout(TEMPO_MAXIMO_MS),
           }
         );
@@ -69,6 +118,7 @@ export async function chamarGemini(corpo) {
       if (resposta.ok) {
         const dados = await resposta.json();
         dados.modeloUsado = candidato;
+        if (podeLembrar) lembrar(chaveDaLembranca, dados);
         return dados;
       }
 
@@ -77,6 +127,14 @@ export async function chamarGemini(corpo) {
       // chave errada: nao adianta tentar de novo nem trocar de modelo
       if (resposta.status === 400 && /API key/i.test(detalhe)) {
         throw new Error('A chave da IA parece invalida. Confira na aba Ajustes.');
+      }
+
+      // Modelo que nao aceita desligar o "raciocinio interno": tira essa parte e
+      // repete. A conta fica um pouco mais cara, mas a tela nao quebra por isso.
+      if (resposta.status === 400 && /thinking/i.test(detalhe) && corpoAtual.generationConfig?.thinkingConfig) {
+        const { thinkingConfig, ...resto } = corpoAtual.generationConfig;
+        corpoAtual = { ...corpoAtual, generationConfig: resto };
+        continue;
       }
       if (resposta.status === 403) {
         throw new Error('A chave da IA nao tem permissao para usar o Gemini. Confira no Google AI Studio.');
@@ -104,6 +162,27 @@ export async function chamarGemini(corpo) {
 
   throw new Error(ultimoErro || 'A IA nao respondeu agora. Tente de novo em instantes.');
 }
+
+/**
+ * Ajustes que deixam a chamada mais barata sem piorar o resultado.
+ *
+ * O maior gasto do Gemini nao e a resposta: e o "raciocinio interno" que ele faz
+ * antes de responder, cobrado como texto gerado. Para arrancar dados de um
+ * documento com formato fixo isso nao ajuda em nada - so gasta. `pensar: 0`
+ * desliga. O limite de tamanho da resposta e a outra trava: sem ele, um engano
+ * do modelo pode gerar milhares de linhas.
+ */
+export function configEconomica({ pensar = 0, maximoDeResposta = 4096, ...resto } = {}) {
+  return {
+    temperature: 0,
+    maxOutputTokens: maximoDeResposta,
+    thinkingConfig: { thinkingBudget: pensar },
+    ...resto,
+  };
+}
+
+/** O modelo mais barato da familia, para tarefa simples (texto curto). */
+export const MODELO_ECONOMICO = 'gemini-flash-lite-latest';
 
 /** Junta o texto das partes da primeira resposta. */
 export function textoDaResposta(dados) {

@@ -7,6 +7,9 @@
 
 import { emTransacao, paraNumero, paraTextoBR, gravarTexto } from './firebird.js';
 import { colunasDe, proximoCodigoProduto, empresaAtual } from './produtos.js';
+// depois de gravar, o indice de busca esta velho: produto novo, nome mudado,
+// produto desativado. Aqui ele e esquecido para ser montado de novo na proxima busca.
+import { invalidarCatalogo } from './catalogo.js';
 
 /** Monta "CAMPO = ?" so para as colunas que existem, ignorando o resto. */
 function montarAtribuicoes(colunas, valores) {
@@ -71,7 +74,7 @@ export async function aplicarNota({ itens, atualizarEstoque = true }) {
     }
 
     return aplicados;
-  });
+  }).finally(invalidarCatalogo);
 }
 
 async function atualizarProduto(executar, colunas, item, opcoes) {
@@ -322,5 +325,5 @@ export async function desfazer(registros) {
       desfeitos.push({ codigo: registro.codigo, resultado: 'valores antigos restaurados' });
     }
     return desfeitos;
-  });
+  }).finally(invalidarCatalogo);
 }
