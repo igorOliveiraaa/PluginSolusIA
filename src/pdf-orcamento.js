@@ -26,12 +26,20 @@ export async function dadosDaLoja() {
   if (daConfig.nome) return daConfig;
 
   try {
-    const linhas = await consultar(
+    // o cadastro da empresa fica na tabela PARAMETRO (EMPRESAS costuma estar vazia)
+    let linhas = await consultar(
       `SELECT FIRST 1 ${campoTexto('RAZAO', 50)}, ${campoTexto('FANTASIA', 50)},
-              ${campoTexto('ENDERECO', 50)}, NUMERO, ${campoTexto('BAIRRO', 30)},
-              ${campoTexto('CIDADE', 30)}, UF, CEP, CPFCNPJ, FONE, EMAIL
-         FROM EMPRESAS`
-    );
+              ${campoTexto('ENDERECO', 50)}, ${campoTexto('CIDADE', 30)}, CPFCNPJ
+         FROM PARAMETRO`
+    ).catch(() => []);
+    if (!linhas.length || !lerTexto(linhas[0].RAZAO)) {
+      linhas = await consultar(
+        `SELECT FIRST 1 ${campoTexto('RAZAO', 50)}, ${campoTexto('FANTASIA', 50)},
+                ${campoTexto('ENDERECO', 50)}, NUMERO, ${campoTexto('BAIRRO', 30)},
+                ${campoTexto('CIDADE', 30)}, UF, CEP, CPFCNPJ, FONE, EMAIL
+           FROM EMPRESAS`
+      ).catch(() => []);
+    }
     const e = linhas[0];
     if (!e) return daConfig;
     return {
@@ -58,7 +66,10 @@ export async function dadosDaLoja() {
 export async function gerarPdfOrcamento({ orcamento, numero, operador, validadeDias = 7, observacao = '' }) {
   const loja = await dadosDaLoja();
   const itens = (orcamento.itens || []).filter((i) => i.incluir && i.produto);
-  const total = itens.reduce((soma, i) => soma + (i.total || 0), 0);
+  const totalItens = itens.reduce((soma, i) => soma + (i.total || 0), 0);
+  // o frete entra no total, igual o Solus faz (TOTALPEDIDO = itens + frete)
+  const frete = Number(orcamento.pagamento?.frete) > 0 ? Number(orcamento.pagamento.frete) : 0;
+  const total = totalItens + frete;
 
   const doc = new PDFDocument({ size: 'A4', margin: 40 });
   const pedacos = [];
@@ -166,6 +177,13 @@ export async function gerarPdfOrcamento({ orcamento, numero, operador, validadeD
   // alinhado exatamente na borda direita da tabela (fim da coluna TOTAL)
   const direita = colunas.total + 75;
   const larguraTotal = direita - colunas.unitario;
+
+  if (frete > 0) {
+    doc.fontSize(9).fillColor(CINZA).font('Helvetica')
+      .text(`Produtos ${dinheiro(totalItens)}   ·   Frete ${dinheiro(frete)}`, colunas.unitario - 120, y - 2,
+        { width: larguraTotal + 120, align: 'right' });
+    y += 14;
+  }
   doc.fontSize(9).fillColor(CINZA).font('Helvetica')
     .text('TOTAL', colunas.unitario, y, { width: larguraTotal, align: 'right' });
   doc.fontSize(16).fillColor(DESTAQUE).font('Helvetica-Bold')
@@ -174,6 +192,15 @@ export async function gerarPdfOrcamento({ orcamento, numero, operador, validadeD
   y = doc.y + 22;
 
   // ---- rodape -------------------------------------------------------------
+  const condicoes = [
+    orcamento.pagamento?.formaDePagamento ? `Pagamento: ${String(orcamento.pagamento.formaDePagamento).trim()}` : '',
+    orcamento.pagamento?.entrega ? `Entrega: ${orcamento.pagamento.entrega}` : '',
+  ].filter(Boolean).join('   ·   ');
+  if (condicoes) {
+    doc.fontSize(9).fillColor(ESCURO).font('Helvetica').text(condicoes, 40, y, { width: largura });
+    y = doc.y + 10;
+  }
+
   if (observacao?.trim()) {
     doc.fontSize(8).fillColor(CINZA).font('Helvetica-Bold').text('OBSERVAÇÕES', 40, y);
     doc.fontSize(9).fillColor(ESCURO).font('Helvetica')

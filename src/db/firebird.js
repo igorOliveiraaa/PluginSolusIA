@@ -5,10 +5,14 @@
 import Firebird from 'node-firebird';
 import { carregarConfig } from '../config.js';
 
-let poolCache = null;
+// uma "fila" de conexoes por loja: cada Solus tem o seu banco
+const pools = new Map();
 
 function opcoes() {
   const cfg = carregarConfig();
+  if (!cfg.banco?.caminho) {
+    throw new Error('Nenhum banco do Solus configurado. Abra o Plugin no PC servidor e escolha a loja.');
+  }
   return {
     host: cfg.banco.host,
     port: cfg.banco.porta,
@@ -34,22 +38,54 @@ export function normalizarCaminho(caminho) {
 }
 
 function pool() {
-  if (!poolCache) poolCache = Firebird.pool(5, opcoes());
-  return poolCache;
+  const cfg = carregarConfig();
+  const chave = cfg.lojaId || 'sem-loja';
+  if (!pools.has(chave)) pools.set(chave, Firebird.pool(5, opcoes()));
+  return pools.get(chave);
 }
 
-/** Deixa o pool de conexoes de lado (usado quando a configuracao muda). */
+/** Deixa as conexoes de lado (usado quando a configuracao das lojas muda). */
 export function reiniciarConexao() {
-  if (poolCache) {
-    try { poolCache.destroy(); } catch { /* pool ja estava fechado */ }
-    poolCache = null;
+  for (const p of pools.values()) {
+    try { p.destroy(); } catch { /* ja estava fechado */ }
   }
+  pools.clear();
+}
+
+/**
+ * Abre UMA conexao avulsa com um banco qualquer, sem passar pelas lojas.
+ * Usado para testar um banco antes de salvar como loja.
+ */
+export function consultarBancoAvulso(banco, sql, params = [], tempoMaximo = 10000) {
+  return new Promise((resolve, reject) => {
+    const relogio = setTimeout(() => reject(new Error('O banco demorou demais para responder.')), tempoMaximo);
+    Firebird.attach({
+      host: banco.host || 'localhost',
+      port: banco.porta || 3050,
+      database: normalizarCaminho(banco.caminho),
+      user: banco.usuario || 'SYSDBA',
+      password: banco.senha || 'masterkey',
+      lowercase_keys: false,
+      charset: 'WIN1252',
+      blobAsText: true,
+    }, (erro, db) => {
+      if (erro) { clearTimeout(relogio); return reject(traduzErro(erro)); }
+      db.query(sql, params, (erroQuery, linhas) => {
+        clearTimeout(relogio);
+        db.detach();
+        if (erroQuery) return reject(traduzErro(erroQuery));
+        resolve(linhas || []);
+      });
+    });
+  });
 }
 
 /** Roda uma consulta e devolve as linhas. */
 export function consultar(sql, params = []) {
   return new Promise((resolve, reject) => {
-    pool().get((erro, db) => {
+    let filaDaLoja;
+    try { filaDaLoja = pool(); } catch (erro) { return reject(erro); }
+    filaDaLoja.get((erro, db) => {
       if (erro) return reject(traduzErro(erro));
       db.query(sql, params, (erroQuery, resultado) => {
         db.detach();
@@ -66,7 +102,9 @@ export function consultar(sql, params = []) {
  */
 export function emTransacao(trabalho) {
   return new Promise((resolve, reject) => {
-    pool().get((erro, db) => {
+    let filaDaLoja;
+    try { filaDaLoja = pool(); } catch (erro) { return reject(erro); }
+    filaDaLoja.get((erro, db) => {
       if (erro) return reject(traduzErro(erro));
       db.transaction(Firebird.ISOLATION_READ_COMMITTED, async (erroTr, transacao) => {
         if (erroTr) { db.detach(); return reject(traduzErro(erroTr)); }

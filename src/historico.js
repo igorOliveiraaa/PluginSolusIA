@@ -6,10 +6,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { PASTAS, garantirPastas } from './config.js';
+import { pastaDaLoja } from './config.js';
 
 function caminhoDo(id) {
-  return path.join(PASTAS.historico, `${id}.json`);
+  return path.join(pastaDaLoja('historico'), `${id}.json`);
 }
 
 function gerarId() {
@@ -21,7 +21,6 @@ function gerarId() {
 
 /** Guarda o resultado de uma nota aplicada. */
 export function salvarAplicacao({ nota, registros, operador = '', observacao = '' }) {
-  garantirPastas();
   const id = gerarId();
 
   const registro = {
@@ -54,9 +53,8 @@ export function salvarAplicacao({ nota, registros, operador = '', observacao = '
 
 /** Lista as ultimas notas aplicadas (mais novas primeiro). */
 export function listarHistorico(limite = 50) {
-  garantirPastas();
   const arquivos = fs
-    .readdirSync(PASTAS.historico)
+    .readdirSync(pastaDaLoja('historico'))
     .filter((nome) => nome.endsWith('.json'))
     .sort()
     .reverse()
@@ -65,7 +63,7 @@ export function listarHistorico(limite = 50) {
   return arquivos
     .map((nome) => {
       try {
-        const dados = JSON.parse(fs.readFileSync(path.join(PASTAS.historico, nome), 'utf8'));
+        const dados = JSON.parse(fs.readFileSync(path.join(pastaDaLoja('historico'), nome), 'utf8'));
         return {
           id: dados.id,
           quando: dados.quando,

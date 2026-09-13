@@ -1089,3 +1089,76 @@ textarea:focus-visible, select:focus-visible, summary:focus-visible {
 
 .tarefa-acoes { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 11px; }
 .tarefa-acoes .botao { padding: 9px 14px; font-size: 14px; }
+
+/* ---------------- lojas (login e configuracao) ---------------- */
+
+.rotulo-lojas { display: block; font-size: 13.5px; font-weight: 600; margin: 4px 0 7px; }
+
+.lojas-login { display: grid; gap: 7px; }
+
+.loja-opcao {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  background: rgba(255, 255, 255, .7);
+  border: 1.5px solid var(--borda);
+  border-radius: var(--raio-p);
+  padding: 11px 13px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 15px;
+  color: var(--texto);
+  transition: all .22s var(--suave);
+}
+
+.loja-opcao span { font-size: 12.5px; color: var(--texto-fraco); }
+.loja-opcao:hover { border-color: var(--principal-claro); }
+
+.loja-opcao.escolhida {
+  border-color: var(--principal);
+  background: rgba(20, 184, 166, .1);
+  box-shadow: 0 0 0 3px rgba(20, 184, 166, .14);
+}
+
+.caixa-larga { max-width: 620px; max-height: calc(100vh - 40px); overflow-y: auto; }
+.login-marca h1 { font-size: 20px; }
+
+.instalacao {
+  border: 1.5px solid var(--borda);
+  border-radius: var(--raio-p);
+  padding: 13px;
+  margin-top: 11px;
+  background: rgba(255, 255, 255, .7);
+  animation: entrar .3s var(--suave) backwards;
+  transition: border-color .2s var(--suave), background .2s;
+}
+
+.instalacao.marcada { border-color: var(--principal); background: rgba(20, 184, 166, .07); }
+
+.instalacao-topo { display: flex; gap: 11px; align-items: flex-start; cursor: pointer; }
+.instalacao-topo input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--principal); flex: 0 0 auto; }
+.instalacao-topo .ajuda { font-size: 12.5px; margin: 0; }
+
+.instalacao-detalhes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  margin: 8px 0 0 31px;
+  font-size: 13px;
+  color: var(--texto);
+}
+
+.instalacao-caminho {
+  margin: 5px 0 0 31px;
+  font-size: 11.5px;
+  color: var(--texto-fraco);
+  word-break: break-all;
+}
+
+.instalacao .item-etiquetas { margin-left: 31px; }
+.instalacao .etiqueta { display: inline-flex; align-items: center; gap: 4px; text-transform: none; letter-spacing: 0; }
+
+.caminho-manual { margin-top: 16px; font-size: 14px; }
+.caminho-manual summary { cursor: pointer; color: var(--principal); font-weight: 500; }

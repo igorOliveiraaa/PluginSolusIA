@@ -21,6 +21,9 @@ import {
 import { rotas as rotasOrcamento } from './rotas-orcamento.js';
 import { rotasAssistente } from './rotas-assistente.js';
 import { rotasVendas } from './rotas-vendas.js';
+import { rotasLojas } from './rotas-lojas.js';
+import { exec } from 'node:child_process';
+import { lojaAtualId } from './loja-atual.js';
 import { exigirLogin } from './db/operadores.js';
 import { obterCertificado, ipsDaMaquina, ehRedeLocal } from './https-local.js';
 
@@ -29,6 +32,9 @@ garantirPastas();
 const app = express();
 app.use(express.json({ limit: '25mb' }));
 app.use(express.static(PASTAS.web));
+
+// lojas vem antes de tudo: e o que decide qual banco cada login usa
+app.use(rotasLojas);
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -42,7 +48,7 @@ const DUAS_HORAS = 2 * 60 * 60 * 1000;
 
 function guardarConferencia(dados) {
   const id = Math.random().toString(36).slice(2, 10);
-  conferenciasAbertas.set(id, { dados, criadaEm: Date.now() });
+  conferenciasAbertas.set(id, { dados, lojaId: lojaAtualId(), criadaEm: Date.now() });
   for (const [chave, valor] of conferenciasAbertas) {
     if (Date.now() - valor.criadaEm > DUAS_HORAS) conferenciasAbertas.delete(chave);
   }
@@ -137,6 +143,7 @@ app.post('/api/recalcular', exigirLogin, (req, res) => {
     const { id, indice, quantidadeUnidades, custoUnitario, unidadesPorCaixa } = req.body;
     const guardada = conferenciasAbertas.get(id);
     if (!guardada) throw new Error('Essa conferencia expirou. Envie a nota de novo.');
+    if (guardada.lojaId !== lojaAtualId()) throw new Error('Essa nota foi lida em outra loja.');
 
     const item = guardada.dados.itens[indice];
     if (!item) throw new Error('Item nao encontrado.');
@@ -176,6 +183,7 @@ app.post('/api/trocar-produto', exigirLogin, async (req, res) => {
     const { id, indice, codigoProduto } = req.body;
     const guardada = conferenciasAbertas.get(id);
     if (!guardada) throw new Error('Essa conferencia expirou. Envie a nota de novo.');
+    if (guardada.lojaId !== lojaAtualId()) throw new Error('Essa nota foi lida em outra loja.');
 
     const item = guardada.dados.itens[indice];
     if (!item) throw new Error('Item nao encontrado.');
@@ -228,6 +236,7 @@ app.post('/api/aplicar', exigirLogin, async (req, res) => {
     const { id, decisoes, operador, atualizarEstoque = true } = req.body;
     const guardada = conferenciasAbertas.get(id);
     if (!guardada) throw new Error('Essa conferencia expirou. Envie a nota de novo.');
+    if (guardada.lojaId !== lojaAtualId()) throw new Error('Essa nota foi lida em outra loja.');
 
     const conferencia = guardada.dados;
 
@@ -320,7 +329,7 @@ app.get('/api/config', exigirLogin, (req, res) => {
         chave: chave ? `...${chave.slice(-6)}` : '',
         temChave: Boolean(chave),
       },
-      banco: { ...cfg.banco, senha: cfg.banco.senha ? '******' : '' },
+      banco: undefined,     // o banco de cada loja e escolhido em Configurar lojas
     },
   });
 });
@@ -331,14 +340,14 @@ app.post('/api/config', exigirLogin, (req, res) => {
     const atual = carregarConfig();
 
     // campos mascarados: se o usuario nao digitou de novo, mantem o que ja estava
-    if (novo.banco?.senha === '******') novo.banco.senha = atual.banco.senha;
+    delete novo.banco;    // o banco so muda pela tela de Configurar lojas
     if (novo.ia?.chave?.startsWith('...')) novo.ia.chave = atual.ia.chave;
 
     const salvo = salvarConfig(novo);
     reiniciarConexao();
     limparCacheColunas();
 
-    res.json({ ok: true, config: { ...salvo, banco: { ...salvo.banco, senha: '******' } } });
+    res.json({ ok: true, config: { ...salvo, banco: undefined } });
   } catch (erro) {
     responderErro(res, erro);
   }
@@ -415,6 +424,18 @@ try {
 }
 
 mostrarEnderecos();
+abrirNoNavegador();
+
+/**
+ * Abre o Plugin no navegador deste PC assim que o servidor liga. Junto com o
+ * INICIAR-COM-O-WINDOWS.bat, e so ligar o PC que a tela ja aparece.
+ */
+function abrirNoNavegador() {
+  const cfg = carregarConfig();
+  if (cfg.servidor?.abrirNavegador === false || process.platform !== 'win32') return;
+  if (process.env.PLUGIN_NAO_ABRIR_NAVEGADOR) return;   // usado pelos testes
+  exec(`start "" "http://localhost:${porta}"`, () => { /* sem navegador: segue sem abrir */ });
+}
 
 function mostrarEnderecos() {
   // So mostra o endereco da rede da loja. Placas falsas (modulo de seguranca

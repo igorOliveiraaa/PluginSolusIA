@@ -20,6 +20,13 @@
       <p class="ajuda">Entre com o mesmo usuário e senha do Solus</p>
     </div>
 
+    <div id="aviso-sem-loja" class="item-aviso escondido"></div>
+
+    <div id="escolha-loja" class="escondido">
+      <span class="rotulo-lojas">Loja</span>
+      <div id="lista-lojas-login" class="lojas-login"></div>
+    </div>
+
     <label class="campo">
       <span>Usuário</span>
       <input type="text" id="login-usuario" list="lista-usuarios" autocomplete="username"
@@ -34,6 +41,49 @@
 
     <div id="erro-login" class="item-aviso erro escondido"></div>
     <button class="botao principal largura-total" id="btn-entrar">Entrar</button>
+    <button class="botao-texto-cinza largura-total escondido" id="btn-configurar-lojas">Configurar lojas</button>
+  </div>
+</section>
+
+<!-- ===================== CONFIGURAR LOJAS ===================== -->
+<section id="tela-lojas" class="tela-login escondido">
+  <div class="caixa-login caixa-larga">
+    <div class="login-marca">
+      <div class="login-icone" data-icone="caixa" data-icone-tamanho="36"></div>
+      <h1>Qual Solus o Plugin deve usar?</h1>
+      <p class="ajuda">
+        Procuro todos os Solus instalados neste computador e mostro de qual empresa
+        é cada um. Marque as lojas que o Plugin vai atender.
+      </p>
+    </div>
+
+    <label class="campo">
+      <span>Um usuário que você usa no Solus <em>(ajuda a achar o certo)</em></span>
+      <input type="text" id="usuario-procurado" placeholder="ex.: ELAINE">
+    </label>
+
+    <button class="botao principal largura-total" id="btn-procurar-solus">Procurar os Solus deste PC</button>
+
+    <div id="procurando-solus" class="escondido" style="text-align:center;margin-top:16px">
+      <div class="girando"></div>
+      <p class="ajuda">Procurando nos discos... pode levar até meio minuto.</p>
+    </div>
+
+    <div id="lista-instalacoes"></div>
+
+    <details class="caminho-manual">
+      <summary>Não apareceu? Informar o caminho na mão</summary>
+      <label class="campo">
+        <span>Caminho do banco <em>(o que está no BANCO.INI da pasta do Solus)</em></span>
+        <input type="text" id="caminho-manual" placeholder="C:SolusSolussisBANCOBANCO.FDB">
+      </label>
+      <button class="botao secundario largura-total" id="btn-testar-caminho">Testar esse banco</button>
+    </details>
+
+    <div id="erro-lojas" class="item-aviso erro escondido"></div>
+
+    <button class="botao principal largura-total" id="btn-salvar-lojas" disabled>Salvar e usar essas lojas</button>
+    <button class="botao-texto-cinza largura-total" id="btn-voltar-login">Voltar</button>
   </div>
 </section>
 
@@ -317,19 +367,9 @@
   <!-- ===================== AJUSTES ===================== -->
   <section id="tela-config" class="tela">
     <div class="cartao">
-      <h2>Banco do Solus</h2>
-      <label class="campo">
-        <span>Endereço do servidor <em>(localhost se for neste PC)</em></span>
-        <input type="text" id="cfg-host" placeholder="localhost ou 192.168.0.10">
-      </label>
-      <label class="campo">
-        <span>Caminho do banco</span>
-        <input type="text" id="cfg-caminho" placeholder="C:/Solus/Solussis/BANCO/BANCO.FDB">
-      </label>
-      <div class="linha-dupla">
-        <label class="campo"><span>Usuário</span><input type="text" id="cfg-usuario"></label>
-        <label class="campo"><span>Senha</span><input type="password" id="cfg-senha"></label>
-      </div>
+      <h2>Loja e Solus</h2>
+      <p class="ajuda" id="loja-dos-ajustes">Os ajustes abaixo valem para a loja em que você entrou.</p>
+      <button id="btn-abrir-lojas" class="botao secundario" data-icone="caixa"><span>Configurar lojas (qual Solus usar)</span></button>
       <button id="btn-testar-banco" class="botao secundario">Testar conexão</button>
       <div id="resultado-banco" class="resultado-teste"></div>
     </div>

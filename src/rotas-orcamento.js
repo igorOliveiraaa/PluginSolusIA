@@ -18,6 +18,8 @@ import { gravarOrcamento, apagarOrcamento } from './db/orcamento.js';
 import { gerarPdfOrcamento, textoDoWhatsApp, dadosDaLoja } from './pdf-orcamento.js';
 import { acompanharOrcamento, acompanhamentoDoOrcamento } from './tarefas.js';
 
+import { lojaAtualId } from './loja-atual.js';
+
 export const rotas = express.Router();
 
 const upload = multer({
@@ -33,7 +35,8 @@ const DUAS_HORAS = 2 * 60 * 60 * 1000;
 
 function guardar(dados) {
   const id = Math.random().toString(36).slice(2, 10);
-  emAndamento.set(id, { dados, criadoEm: Date.now() });
+  // guarda de qual loja e: um orcamento nunca pode ser gravado no banco da outra
+  emAndamento.set(id, { dados, lojaId: lojaAtualId(), criadoEm: Date.now() });
   for (const [chave, valor] of emAndamento) {
     if (Date.now() - valor.criadoEm > DUAS_HORAS) emAndamento.delete(chave);
   }
@@ -43,6 +46,7 @@ function guardar(dados) {
 function pegar(id) {
   const guardado = emAndamento.get(id);
   if (!guardado) throw new Error('Esse orcamento expirou. Monte de novo.');
+  if (guardado.lojaId !== lojaAtualId()) throw new Error('Esse orcamento e de outra loja.');
   return guardado.dados;
 }
 
@@ -57,15 +61,15 @@ function erro(res, e, status = 400) {
 
 rotas.get('/api/operadores', async (req, res) => {
   try {
-    res.json({ ok: true, operadores: await listarOperadores() });
+    res.json({ ok: true, operadores: await listarOperadores(String(req.query.loja || '') || null) });
   } catch (e) { erro(res, e); }
 });
 
 rotas.post('/api/entrar', async (req, res) => {
   try {
-    const { usuario, senha } = req.body;
+    const { usuario, senha, loja } = req.body;
     const origem = req.ip || req.socket?.remoteAddress || '';
-    res.json({ ok: true, ...(await autenticar(usuario, senha, origem)) });
+    res.json({ ok: true, ...(await autenticar(usuario, senha, origem, loja || null)) });
   } catch (e) { erro(res, e, 401); }
 });
 
@@ -297,7 +301,8 @@ rotas.get('/api/orcamento/:id/texto', exigirLogin, async (req, res) => {
     const orcamento = pegar(req.params.id);
     const total = orcamento.itens
       .filter((i) => i.incluir && i.produto)
-      .reduce((soma, i) => soma + (i.total || 0), 0);
+      .reduce((soma, i) => soma + (i.total || 0), 0)
+      + (Number(orcamento.pagamento?.frete) > 0 ? Number(orcamento.pagamento.frete) : 0);
 
     res.json({
       ok: true,

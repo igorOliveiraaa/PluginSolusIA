@@ -15,12 +15,13 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { PASTAS, garantirPastas } from './config.js';
+import { pastaDaLoja } from './config.js';
 import {
   situacaoDosPedidos, vendasParaEmpresaSemNota, orcamentosEmAberto,
 } from './db/vendas.js';
 
-const ARQUIVO = path.join(PASTAS.dados, 'acompanhamento.json');
+// cada loja acompanha os seus orcamentos
+const arquivoDaLoja = () => path.join(pastaDaLoja(), 'acompanhamento.json');
 const DIAS_QUE_ACOMPANHA = 60;
 
 // ---------------------------------------------------------------------------
@@ -29,7 +30,7 @@ const DIAS_QUE_ACOMPANHA = 60;
 
 function ler() {
   try {
-    const dados = JSON.parse(fs.readFileSync(ARQUIVO, 'utf8'));
+    const dados = JSON.parse(fs.readFileSync(arquivoDaLoja(), 'utf8'));
     return Array.isArray(dados.orcamentos) ? dados : { orcamentos: [], dispensadas: {} };
   } catch {
     return { orcamentos: [], dispensadas: {} };
@@ -37,8 +38,7 @@ function ler() {
 }
 
 function gravar(dados) {
-  garantirPastas();
-  fs.writeFileSync(ARQUIVO, JSON.stringify(dados, null, 2), 'utf8');
+  fs.writeFileSync(arquivoDaLoja(), JSON.stringify(dados, null, 2), 'utf8');
 }
 
 /** Passa a acompanhar um orcamento que acabou de ser gravado. */

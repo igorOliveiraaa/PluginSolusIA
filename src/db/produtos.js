@@ -10,7 +10,9 @@ const cacheColunas = new Map();
 /** Lista as colunas que a tabela realmente tem neste banco. */
 export async function colunasDe(tabela) {
   const nome = tabela.toUpperCase();
-  if (cacheColunas.has(nome)) return cacheColunas.get(nome);
+  // cada loja tem o seu banco, e os bancos podem ser de versoes diferentes do Solus
+  const chaveCache = `${carregarConfig().lojaId || 'sem-loja'}:${nome}`;
+  if (cacheColunas.has(chaveCache)) return cacheColunas.get(chaveCache);
   const linhas = await consultar(
     `SELECT TRIM(RF.RDB$FIELD_NAME) AS COLUNA
        FROM RDB$RELATION_FIELDS RF
@@ -18,7 +20,7 @@ export async function colunasDe(tabela) {
     [nome]
   );
   const conjunto = new Set(linhas.map((l) => String(l.COLUNA).trim().toUpperCase()));
-  cacheColunas.set(nome, conjunto);
+  cacheColunas.set(chaveCache, conjunto);
   return conjunto;
 }
 

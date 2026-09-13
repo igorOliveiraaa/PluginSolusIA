@@ -19,7 +19,8 @@ Problema que ela resolve: hoje a importação do Solus cadastra "1 caixa" em vez
 npm install          # só na primeira vez  (ou dois cliques em INSTALAR.bat)
 npm start            # sobe o servidor      (ou dois cliques em INICIAR-PLUGIN.bat)
 ```
-`INICIAR-COM-O-WINDOWS.bat` cria o atalho para abrir sozinho quando o PC liga.
+`INICIAR-COM-O-WINDOWS.bat` cria o atalho para abrir sozinho quando o PC liga (e o
+navegador abre sozinho no Plugin). `ATUALIZAR-PLUGIN.bat` baixa a versão nova do GitHub.
 Abre em `http://localhost:3535`. No celular pela rede WiFi da loja, usar o IP que
 aparece no terminal. O PC servidor precisa ficar ligado.
 
@@ -31,7 +32,10 @@ editável pela aba **Ajustes** da própria ferramenta.
 | Arquivo | O que faz |
 |---|---|
 | `src/servidor.js` | Servidor Express, todas as rotas da API |
-| `src/config.js` | Configuração (banco, IA, regras de preço) |
+| `src/config.js` | Configuração: o que é global (IA, regras) e o que é de cada loja (banco, PDF, notas) |
+| `src/loja-atual.js` | Qual loja a requisição atende (AsyncLocalStorage) |
+| `src/instalacoes-solus.js` | Procura os Solus do PC (BANCO.INI + .FDB) e lê a empresa de cada um |
+| `src/rotas-lojas.js` | Lojas no login e tela "Configurar lojas" (só no PC servidor ou gerente) |
 | `src/db/firebird.js` | Conexão, conversão de número e de acento |
 | `src/db/produtos.js` | Buscar produto (barras, fornecedor, nome) e achar repetidos |
 | `src/db/gravacao.js` | Gravar, igualar preço de repetidos, desativar, desfazer |
@@ -87,7 +91,13 @@ editável pela aba **Ajustes** da própria ferramenta.
   existe outra faixa de numeração muito mais alta na tabela).
 - `ITEMPEDIDO.PRODUTO` guarda o código de barras (ou o código, quando não tem barras).
 - `OPERADOR` guarda a senha em **texto puro** — é assim que o Solus funciona.
-- A tabela `EMPRESAS` está vazia neste banco; os dados da loja ficam na configuração.
+- A tabela `EMPRESAS` está vazia neste banco. **O cadastro da empresa está em `PARAMETRO`**
+  (RAZAO, FANTASIA, CPFCNPJ) — é por ali que se descobre de qual CNPJ é cada banco.
+- O Solus diz qual banco usa no `BANCO.INI` da pasta do Solus.exe (1ª linha, às vezes
+  com `servidor:` na frente).
+- **Pode haver mais de um Solus no mesmo PC** (um por CNPJ), cada um com seus usuários.
+  Foi o que aconteceu na loja: o Plugin abriu o banco do outro CNPJ e dava "senha
+  incorreta" / "usuário não existe".
 - **Venda → nota:** `PEDIDOS.NOTA` = `NF.NUMERO` (confere também o CODCLIENTE).
   `NF.NUMPEDIDO` existe mas vem vazio — não serve para ligar.
 - `NF.STATUSNFE` é texto da Sefaz ("Autorizado o uso da NF-e", "NFE CANCELADA",
@@ -175,14 +185,24 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   entre os itens na proporção, recalcula o custo por unidade).
 - A tela mostra o que foi entendido e o que entrou em cada item, antes de gravar.
 
-### 7. Login e acesso — pronto
+### 7. Várias lojas (um Solus por CNPJ) — pronto
+- Tela **Configurar lojas**: procura todos os Solus do PC, mostra empresa, CNPJ,
+  produtos, última venda e **em qual existe o usuário digitado**. Marca as lojas e salva.
+- Funciona sem login, mas **só no próprio PC servidor** (ou para gerente logado).
+- No login a pessoa escolhe a loja; tudo depois (consultas, gravações, histórico,
+  tarefas) usa só o banco dela. Testado com 2 bancos e consultas simultâneas.
+- Instalação nova sem loja configurada: o login avisa e leva para Configurar lojas.
+- Config antiga (`banco` solto no topo do config.json) continua valendo como loja
+  "principal".
+
+### 8. Login e acesso — pronto
 - Usa os **mesmos usuários e senhas do Solus** (tabela OPERADOR).
 - Respeita as permissões do Solus (ver custo, mexer em cadastro, fazer orçamento).
 - HTTPS com certificado próprio, para o celular instalar como aplicativo
   e o botão de compartilhar funcionar.
 - Trava de 10 minutos depois de 5 senhas erradas (as senhas do Solus são curtas).
 
-### 8. Visual — pronto
+### 9. Visual — pronto
 - Vidro fosco, ícones em SVG desenhados no projeto (nenhum emoji, nenhuma
   biblioteca externa), animações curtas.
 - No celular: abas em cima, botões grandes, respeita a área segura do aparelho.
@@ -194,7 +214,8 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Chave do Gemini **já configurada** neste PC (em `dados/config.json`, fora do Git).
   Na loja, colar de novo pela aba Ajustes. Assistente testado com o banco real.
 - Preencher os dados da loja em Ajustes (saem no PDF do orçamento).
-- Apontar para o banco da loja (hoje aponta para `C:/SolusTeste/EC.FDB`).
+- Na loja: atualizar (git pull), abrir no PC servidor e usar **Configurar lojas** para
+  escolher os dois Solus. Este PC de desenvolvimento aponta para `C:/SolusTeste/EC.FDB`.
 - Não implementado de propósito: emitir NF-e pela ferramenta. A nota sai do Solus.
 - Cadastrar em Ajustes a pasta das notas do PC do certificado (compartilhada na rede),
   senão o PDF da nota não é encontrado a partir do servidor.

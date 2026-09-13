@@ -2,6 +2,7 @@
 
 import { $, $$, dinheiro, escapar, mostrarTela, avisar } from './comum.js';
 import { icone } from './icones.js';
+import { abrirConfiguracaoDeLojas } from './login.js';
 
 const estado = {
   arquivos: [],
@@ -810,10 +811,9 @@ async function carregarConfig() {
     const resposta = await fetch('/api/config');
     const { config } = await resposta.json();
 
-    $('#cfg-host').value = config.banco.host || '';
-    $('#cfg-caminho').value = config.banco.caminho || '';
-    $('#cfg-usuario').value = config.banco.usuario || '';
-    $('#cfg-senha').value = config.banco.senha || '';
+    $('#loja-dos-ajustes').textContent = config.lojaNome
+      ? `Os ajustes abaixo valem para a loja ${config.lojaNome}.`
+      : 'Os ajustes abaixo valem para a loja em que você entrou.';
     $('#cfg-chave-ia').value = config.ia.chave || '';
     $('#cfg-arredondar').value = config.regras.arredondarPara ?? 0.9;
     $('#cfg-margem-novo').value = config.regras.margemNovoProduto ?? 30;
@@ -851,12 +851,6 @@ async function carregarModelos(atual) {
 
 $('#btn-salvar-config').addEventListener('click', async () => {
   const novo = {
-    banco: {
-      host: $('#cfg-host').value.trim(),
-      caminho: $('#cfg-caminho').value.trim(),
-      usuario: $('#cfg-usuario').value.trim(),
-      senha: $('#cfg-senha').value,
-    },
     ia: {
       chave: $('#cfg-chave-ia').value.trim(),
       modelo: $('#cfg-modelo-ia').value,
@@ -908,6 +902,8 @@ $('#btn-testar-banco').addEventListener('click', async () => {
     mostrarTeste(area, false, erro.message);
   }
 });
+
+$('#btn-abrir-lojas').addEventListener('click', () => abrirConfiguracaoDeLojas());
 
 $('#btn-testar-pastas').addEventListener('click', async () => {
   const area = $('#resultado-pastas');
