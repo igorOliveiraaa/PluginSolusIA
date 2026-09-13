@@ -21,14 +21,18 @@ async function proximoNumero(executar) {
  * Grava o orcamento e devolve o numero que o Solus vai mostrar.
  * Roda tudo numa transacao: ou o orcamento inteiro entra, ou nada entra.
  */
-export async function gravarOrcamento({ orcamento, operador, natureza = '5102', tipoVenda = '' }) {
+export async function gravarOrcamento({ orcamento, operador, natureza = '5102', pagamento = {} }) {
   const itens = (orcamento.itens || []).filter((i) => i.incluir && i.produto);
   if (!itens.length) throw new Error('Nenhum item para gravar no orcamento.');
 
   const colunasPedido = await colunasDe('PEDIDOS');
   const colunasItem = await colunasDe('ITEMPEDIDO');
 
-  const total = itens.reduce((soma, i) => soma + (i.total || 0), 0);
+  const totalItens = itens.reduce((soma, i) => soma + (i.total || 0), 0);
+  // No Solus o frete entra no total do pedido (TOTALPEDIDO = itens + frete)
+  const frete = Number(pagamento.frete) > 0 ? Number(pagamento.frete) : 0;
+  const total = totalItens + frete;
+  const tipoVenda = String(pagamento.formaDePagamento || '');
   const cliente = orcamento.cliente;
   const agora = new Date();
   const nomeOperador = String(operador?.nome || '').slice(0, 40);
@@ -45,17 +49,26 @@ export async function gravarOrcamento({ orcamento, operador, natureza = '5102', 
       EMISSAO: agora,
       STATUS: 'ORCAMENTO',
       TOTALPEDIDO: paraTextoBR(total),
-      TOTALITENS: paraTextoBR(total),
+      TOTALITENS: paraTextoBR(totalItens),
       TOTPEDIDO: total,
-      TOTITENS: total,
+      TOTITENS: totalItens,
       DESCONTO: '0,00',
       USUARIO: nomeOperador,
       ATUALIZA: 'S',
       NATUREZA: String(natureza).slice(0, 6),
-      TIPOVENDA: String(tipoVenda || '').slice(0, 15),
-      PRAZO: '0',
       PDV: '0',
       CODABERTURA: 0,
+
+      // pagamento e entrega, para o Solus ja abrir a venda preenchida
+      TIPOVENDA: tipoVenda.slice(0, 15),
+      PRAZO: String(pagamento.prazo ?? '0').slice(0, 4),
+      FRETE: paraTextoBR(frete),
+      MODALIDADEFRETE: String(pagamento.modalidadeFrete ?? '9').slice(0, 1),
+      ENTREGA: String(pagamento.entrega || '').slice(0, 20),
+      VALIDADE: String(pagamento.validade || '').slice(0, 20),
+      OBS1: gravarTexto(String(pagamento.observacao || '').slice(0, 100)),
+      VENDEDOR: String(pagamento.codigoVendedor || operador?.codigoVendedor || '').slice(0, 6),
+      NOMEVENDEDOR: gravarTexto(String(pagamento.vendedor || nomeOperador).slice(0, 40)),
     };
 
     await inserir(executar, 'PEDIDOS', colunasPedido, cabecalho);
@@ -96,8 +109,12 @@ export async function gravarOrcamento({ orcamento, operador, natureza = '5102', 
     return {
       numero,
       total: Math.round(total * 100) / 100,
+      totalItens: Math.round(totalItens * 100) / 100,
+      frete,
       quantidadeItens: itens.length,
       cliente: cliente?.nome || 'CONSUMIDOR',
+      codigoCliente: cliente?.codigo || '',
+      formaDePagamento: tipoVenda,
     };
   });
 }

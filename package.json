@@ -9,6 +9,7 @@
     "teste-banco": "node src/ferramentas/testa-banco.js"
   },
   "dependencies": {
+    "bwip-js": "^4.11.4",
     "express": "^5.2.1",
     "fast-xml-parser": "^5.11.1",
     "multer": "^2.3.0",

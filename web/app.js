@@ -169,6 +169,15 @@ function desenharConferencia(jaAplicada) {
            </div>`)
     : '';
 
+  const ajustes = nota.ajustes
+    ? `<div class="item-aviso info" style="margin-top:10px">
+         <strong>Entendi da sua observação:</strong> ${escapar(nota.ajustes.entendi)}
+         ${nota.ajustes.naoEntendi
+           ? '<br><em>Não usei esta parte: ' + escapar(nota.ajustes.naoEntendi) + '</em>' : ''}
+         <br><em>A conta foi feita pelo sistema; confira os itens abaixo.</em>
+       </div>`
+    : '';
+
   $('#resumo-nota').innerHTML = `
     <div class="resumo-grade">
       <div class="resumo-item">
@@ -188,7 +197,7 @@ function desenharConferencia(jaAplicada) {
         <div class="resumo-rotulo">precisam de atenção</div>
       </div>
     </div>
-    ${conferencia}`;
+    ${conferencia}${ajustes}`;
 
   desenharItens();
 }
@@ -400,6 +409,9 @@ function desenharItem(item, indice) {
 
       ${item.explicacaoCusto
         ? `<div class="comparacao-detalhe" style="margin-top:8px">Custo: ${escapar(item.explicacaoCusto)}</div>`
+        : ''}
+      ${item.ajusteAplicado
+        ? `<div class="item-aviso info">Ajuste da sua observação: ${escapar(item.ajusteAplicado)}</div>`
         : ''}
 
       ${blocoIrmaos}
@@ -813,6 +825,7 @@ async function carregarConfig() {
     $('#cfg-loja-cidade').value = config.loja?.cidade || '';
     $('#cfg-loja-uf').value = config.loja?.uf || '';
     $('#cfg-loja-telefone').value = config.loja?.telefone || '';
+    $('#cfg-pastas-notas').value = config.notas?.pastas || '';
     $('#cfg-frete').checked = config.regras.somarFrete !== false;
     $('#cfg-ipi').checked = config.regras.somarIPI !== false;
     $('#cfg-st').checked = config.regras.somarST !== false;
@@ -849,6 +862,7 @@ $('#btn-salvar-config').addEventListener('click', async () => {
       modelo: $('#cfg-modelo-ia').value,
     },
     empresa: { regime: $('#cfg-regime').value },
+    notas: { pastas: $('#cfg-pastas-notas').value.trim() },
     loja: {
       nome: $('#cfg-loja-nome').value.trim(),
       cnpj: $('#cfg-loja-cnpj').value.trim(),
@@ -890,6 +904,28 @@ $('#btn-testar-banco').addEventListener('click', async () => {
     const resultado = await resposta.json();
     if (!resultado.ok) throw new Error(resultado.erro);
     mostrarTeste(area, true, `Conectou! ${resultado.totalProdutos} produtos no banco.`);
+  } catch (erro) {
+    mostrarTeste(area, false, erro.message);
+  }
+});
+
+$('#btn-testar-pastas').addEventListener('click', async () => {
+  const area = $('#resultado-pastas');
+  const pastas = $('#cfg-pastas-notas').value.trim();
+  if (!pastas) { mostrarTeste(area, false, 'Escreva ao menos uma pasta.'); return; }
+
+  mostrarTeste(area, true, 'Testando...');
+  try {
+    const resposta = await fetch('/api/notas/testar-pasta', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pastas }),
+    });
+    const resultado = await resposta.json();
+    if (!resultado.ok) throw new Error(resultado.erro);
+
+    const linhas = resultado.resultados.map((r) => `${r.ok ? 'OK' : 'ERRO'} — ${r.pasta}: ${r.mensagem}`);
+    mostrarTeste(area, resultado.resultados.every((r) => r.ok), linhas.join(' | '));
   } catch (erro) {
     mostrarTeste(area, false, erro.message);
   }

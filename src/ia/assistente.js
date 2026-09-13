@@ -6,11 +6,10 @@
 //
 // Todas as ferramentas sao de LEITURA. O assistente nao altera nada na loja.
 
-import { carregarConfig } from '../config.js';
+import { chamarGemini } from '../leitura/gemini.js';
 import * as consultas from './consultas.js';
 import { consultaLivre, MAPA_DO_BANCO } from './sql-seguro.js';
 
-const ENDERECO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const MAX_RODADAS = 6;        // quantas consultas seguidas ela pode fazer numa pergunta
 
 // ---------------------------------------------------------------------------
@@ -203,35 +202,14 @@ ${MAPA_DO_BANCO}
 Hoje e ${new Date().toLocaleDateString('pt-BR')}.`;
 }
 
-/** Chama o Gemini. */
-async function chamarIA({ conteudos, chave, modelo, operador }) {
-  const resposta = await fetch(
-    `${ENDERECO_BASE}/models/${encodeURIComponent(modelo)}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: instrucoes(operador) }] },
-        contents: conteudos,
-        tools: [{ functionDeclarations: DECLARACOES }],
-        generationConfig: { temperature: 0.2 },
-      }),
-    }
-  );
-
-  if (!resposta.ok) {
-    let detalhe = '';
-    try { detalhe = (await resposta.json())?.error?.message || ''; } catch { /* sem corpo */ }
-    if (resposta.status === 429) {
-      throw new Error('A IA atingiu o limite de uso agora ha pouco. Espere um minuto e pergunte de novo.');
-    }
-    if (resposta.status === 400 && /API key/i.test(detalhe)) {
-      throw new Error('A chave da IA parece invalida. Confira na aba Ajustes.');
-    }
-    throw new Error(`A IA nao respondeu (erro ${resposta.status}). ${detalhe}`.trim());
-  }
-
-  return resposta.json();
+/** Chama o Gemini (com nova tentativa e modelo reserva, ver leitura/gemini.js). */
+function chamarIA({ conteudos, operador }) {
+  return chamarGemini({
+    systemInstruction: { parts: [{ text: instrucoes(operador) }] },
+    contents: conteudos,
+    tools: [{ functionDeclarations: DECLARACOES }],
+    generationConfig: { temperature: 0.2 },
+  });
 }
 
 /**
@@ -240,12 +218,6 @@ async function chamarIA({ conteudos, chave, modelo, operador }) {
  * Devolve tambem os dados crus das consultas, para virar planilha ou PDF depois.
  */
 export async function perguntar({ pergunta, historico = [], operador }) {
-  const cfg = carregarConfig();
-  const chave = cfg.ia?.chave?.trim();
-  if (!chave) throw new Error('Falta configurar a chave da IA (Gemini) na aba Ajustes.');
-
-  const modelo = cfg.ia?.modelo || 'gemini-2.5-flash';
-
   const conteudos = [
     ...historico.map((m) => ({ role: m.papel === 'ia' ? 'model' : 'user', parts: [{ text: m.texto }] })),
     { role: 'user', parts: [{ text: String(pergunta) }] },
@@ -254,7 +226,7 @@ export async function perguntar({ pergunta, historico = [], operador }) {
   const consultasFeitas = [];
 
   for (let rodada = 0; rodada < MAX_RODADAS; rodada += 1) {
-    const dados = await chamarIA({ conteudos, chave, modelo, operador });
+    const dados = await chamarIA({ conteudos, operador });
     const partes = dados?.candidates?.[0]?.content?.parts || [];
 
     const chamadas = partes.filter((p) => p.functionCall).map((p) => p.functionCall);
@@ -270,7 +242,10 @@ export async function perguntar({ pergunta, historico = [], operador }) {
     }
 
     // roda as ferramentas pedidas
-    conteudos.push({ role: 'model', parts: chamadas.map((c) => ({ functionCall: c })) });
+    // Devolve a fala do modelo EXATAMENTE como veio. Os Gemini novos mandam uma
+    // "thoughtSignature" junto de cada chamada de ferramenta e recusam a conversa
+    // (erro 400) se ela nao voltar. Remontar as partes na mao perdia essa assinatura.
+    conteudos.push({ role: 'model', parts: partes });
 
     const respostasDasFerramentas = [];
     for (const chamada of chamadas) {

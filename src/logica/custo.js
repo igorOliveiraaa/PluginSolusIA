@@ -72,6 +72,64 @@ export function calcularCustos(nota, { regime = 'simples', somarFrete = true, so
   });
 }
 
+/**
+ * Aplica os ajustes que vieram da observacao do operador.
+ *
+ * A IA so entendeu o que foi escrito ("tem 50 reais de taxa nessa nota");
+ * quem faz a conta e esta funcao, sempre do mesmo jeito:
+ *   - valor da nota inteira -> rateado entre os itens, na proporcao do valor;
+ *   - valor de um item -> vai so naquele item;
+ *   - unidades por caixa -> recalcula quantidade e custo por unidade.
+ */
+export function aplicarAjustes(itens, ajustes) {
+  if (!ajustes?.temAjuste) return itens;
+
+  const porNumero = new Map((ajustes.porItem || []).map((a) => [a.numero, a]));
+  const diferencaDaNota = (ajustes.acrescimoNaNota || 0) - (ajustes.descontoNaNota || 0);
+  const rateio = ratear(diferencaDaNota, itens);
+
+  return itens.map((item, indice) => {
+    const ajuste = porNumero.get(item.numero);
+    const explicacoes = [];
+
+    let quantidade = item.quantidadeUnidades;
+    let custoTotal = item.custoTotalItem;
+
+    // 1) quantas unidades vem na caixa
+    if (ajuste?.unidadesPorCaixa > 1 && item.quantidadeComercial > 0) {
+      quantidade = item.quantidadeComercial * ajuste.unidadesPorCaixa;
+      explicacoes.push(`${ajuste.unidadesPorCaixa} unidades por ${item.unidadeOriginal || 'caixa'} (voce informou)`);
+    }
+
+    // 2) valor so deste item
+    const doItem = (ajuste?.acrescimo || 0) - (ajuste?.desconto || 0);
+    if (doItem) {
+      custoTotal += doItem;
+      explicacoes.push(`${doItem > 0 ? '+' : '-'} R$ ${Math.abs(doItem).toFixed(2).replace('.', ',')} neste item`);
+    }
+
+    // 3) parte do valor da nota inteira
+    const daNota = rateio[indice] || 0;
+    if (daNota) {
+      custoTotal += daNota;
+      explicacoes.push(`${daNota > 0 ? '+' : '-'} R$ ${Math.abs(daNota).toFixed(2).replace('.', ',')} rateado da nota`);
+    }
+
+    if (!explicacoes.length) return item;
+
+    const quantidadeFinal = quantidade > 0 ? quantidade : 1;
+    return {
+      ...item,
+      quantidadeUnidades: quantidadeFinal,
+      unidadesPorCaixa: ajuste?.unidadesPorCaixa > 1 ? ajuste.unidadesPorCaixa : item.unidadesPorCaixa,
+      convertido: ajuste?.unidadesPorCaixa > 1 ? true : item.convertido,
+      custoTotalItem: arredondar(custoTotal, 2),
+      custoUnitario: arredondar(custoTotal / quantidadeFinal, 4),
+      ajusteAplicado: explicacoes.join(' · '),
+    };
+  });
+}
+
 /** Explica em uma frase o que entrou no custo, para mostrar na tela. */
 export function explicarCusto(composicao) {
   if (!composicao) return '';

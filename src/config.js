@@ -26,7 +26,7 @@ const PADRAO = {
   },
   ia: {
     chave: '',                        // chave do Google Gemini (tela de Configuracao)
-    modelo: 'gemini-2.5-flash',       // le foto e PDF; e o mais barato da familia
+    modelo: 'gemini-flash-latest',       // le foto e PDF; e o mais barato da familia
   },
   regras: {
     // Como sugerir o preco novo quando o custo muda
@@ -41,6 +41,13 @@ const PADRAO = {
   },
   servidor: {
     porta: 3535,
+  },
+  notas: {
+    // pastas onde o ACBr/Solus salvam o XML e o PDF das notas emitidas.
+    // Quando a emissao e em outro PC, use o caminho de rede:
+    //   \NOME-DO-PCACBrMonitorPLUSLogs
+    // Uma por linha.
+    pastas: '',
   },
   // aparecem no cabecalho do PDF do orcamento
   loja: {

@@ -16,9 +16,10 @@ Problema que ela resolve: hoje a importação do Solus cadastra "1 caixa" em vez
 ## Como rodar
 
 ```
-npm install          # só na primeira vez
-npm start            # sobe o servidor
+npm install          # só na primeira vez  (ou dois cliques em INSTALAR.bat)
+npm start            # sobe o servidor      (ou dois cliques em INICIAR-PLUGIN.bat)
 ```
+`INICIAR-COM-O-WINDOWS.bat` cria o atalho para abrir sozinho quando o PC liga.
 Abre em `http://localhost:3535`. No celular pela rede WiFi da loja, usar o IP que
 aparece no terminal. O PC servidor precisa ficar ligado.
 
@@ -36,6 +37,7 @@ editável pela aba **Ajustes** da própria ferramenta.
 | `src/db/gravacao.js` | Gravar, igualar preço de repetidos, desativar, desfazer |
 | `src/leitura/xml.js` | Ler XML da NF-e + converter caixa em unidade |
 | `src/leitura/ia.js` | Ler foto/PDF com o Google Gemini |
+| `src/leitura/gemini.js` | Porta única para o Gemini: tenta de novo e usa modelo reserva |
 | `src/logica/custo.js` | Custo real com frete, IPI, ICMS-ST e crédito de imposto |
 | `src/logica/precos.js` | Margem, preço sugerido e arredondamento |
 | `src/logica/conferencia.js` | Junta tudo e monta a tela de conferência |
@@ -45,7 +47,11 @@ editável pela aba **Ajustes** da própria ferramenta.
 | `src/ia/sql-seguro.js` | Porteiro das consultas livres da IA |
 | `src/ia/exportar.js` | Resultado vira planilha (CSV) ou PDF |
 | `src/db/clientes.js` | Cliente, histórico de compra e último preço pago |
-| `src/db/orcamento.js` | Grava orçamento em PEDIDOS/ITEMPEDIDO |
+| `src/db/orcamento.js` | Grava orçamento em PEDIDOS/ITEMPEDIDO (com pagamento e frete) |
+| `src/db/vendas.js` | Acompanha a venda e a nota dentro do Solus (só leitura) |
+| `src/tarefas.js` | O que falta fazer; some sozinho quando o Solus resolve |
+| `src/danfe.js` | Monta o DANFE em PDF a partir do XML autorizado |
+| `src/notas-arquivos.js` | Acha XML e PDF da nota nas pastas do ACBr/Solus |
 | `src/db/operadores.js` | Login com os usuários do Solus |
 | `src/leitura/cnpj.js` | Consulta de CNPJ na Receita |
 | `src/leitura/lista-texto.js` | Lê lista digitada sem gastar IA |
@@ -82,6 +88,27 @@ editável pela aba **Ajustes** da própria ferramenta.
 - `ITEMPEDIDO.PRODUTO` guarda o código de barras (ou o código, quando não tem barras).
 - `OPERADOR` guarda a senha em **texto puro** — é assim que o Solus funciona.
 - A tabela `EMPRESAS` está vazia neste banco; os dados da loja ficam na configuração.
+- **Venda → nota:** `PEDIDOS.NOTA` = `NF.NUMERO` (confere também o CODCLIENTE).
+  `NF.NUMPEDIDO` existe mas vem vazio — não serve para ligar.
+- `NF.STATUSNFE` é texto da Sefaz ("Autorizado o uso da NF-e", "NFE CANCELADA",
+  "Rejeição: ..."). `NF.CHAVENFE` tem a chave e `NF.XML` o caminho do arquivo.
+- Quem emite é o **ACBrMonitor**, no PC do certificado, e salva o XML em
+  `C:ACBrMonitorPLUSLogs`. Para o Plugin enxergar, essa pasta precisa estar
+  compartilhada na rede e cadastrada em Ajustes.
+- Pagamento fica em `PEDIDOS.TIPOVENDA`, com os nomes da tabela `CONDICAO`
+  (um deles começa com espaço — gravar exatamente como está lá).
+- Frete: `PEDIDOS.FRETE`, e `TOTALPEDIDO = TOTALITENS + FRETE`.
+
+## O que aprendi do Gemini
+
+- **Use `gemini-flash-latest`**. O `gemini-2.5-flash` aparece na lista de modelos mas
+  devolve 404 "no longer available to new users" para contas novas.
+- O Gemini gratuito responde **503 (sobrecarregado)** com frequência. Por isso toda
+  chamada passa por `src/leitura/gemini.js`: tenta de novo e cai para
+  `gemini-flash-lite-latest`.
+- Com ferramentas (function calling), a fala do modelo tem que voltar **inteira** para a
+  conversa: os modelos novos mandam `thoughtSignature` e dão 400 se ela sumir.
+- O assistente leva de 10 a 50 segundos por pergunta no plano gratuito.
 
 ## Status atual
 
@@ -129,14 +156,33 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Respeita a permissão de custo: quem não vê custo no Solus não vê aqui.
 - O resultado vira **planilha (CSV) ou PDF** com um clique.
 
-### 5. Login e acesso — pronto
+### 5. Venda, nota fiscal e tarefas — pronto
+- O orçamento vai para o Solus **com forma de pagamento, frete, entrega e validade**,
+  já sugeridos pelo histórico do próprio cliente.
+- O Plugin **acompanha sozinho** no banco: orçamento → venda faturada → nota gerada →
+  nota autorizada. A aba **Tarefas** mostra o que falta e tira da lista quando o
+  Solus resolve. Confere a cada 45 segundos e avisa quando a nota é autorizada.
+- Com a nota autorizada, entrega o **PDF**: usa o do Solus/ACBr quando alcança a
+  pasta; senão **monta o DANFE** a partir do XML (código de barras da chave,
+  protocolo, itens, impostos, várias folhas). Imprime, baixa e manda no WhatsApp.
+- Também vira tarefa: nota rejeitada pela Sefaz, nota cancelada, e venda para
+  empresa (CNPJ) que saiu sem nota nos últimos 3 dias.
+- **A emissão continua no Solus.** O Plugin não emite nada.
+
+### 6. Observação vira cálculo — pronto
+- A pessoa escreve "veio uma taxa de 50 reais a mais" ou "a caixa vem com 24".
+- A **IA só entende** o que foi escrito; **o código faz a conta** (rateia o valor
+  entre os itens na proporção, recalcula o custo por unidade).
+- A tela mostra o que foi entendido e o que entrou em cada item, antes de gravar.
+
+### 7. Login e acesso — pronto
 - Usa os **mesmos usuários e senhas do Solus** (tabela OPERADOR).
 - Respeita as permissões do Solus (ver custo, mexer em cadastro, fazer orçamento).
 - HTTPS com certificado próprio, para o celular instalar como aplicativo
   e o botão de compartilhar funcionar.
 - Trava de 10 minutos depois de 5 senhas erradas (as senhas do Solus são curtas).
 
-### 6. Visual — pronto
+### 8. Visual — pronto
 - Vidro fosco, ícones em SVG desenhados no projeto (nenhum emoji, nenhuma
   biblioteca externa), animações curtas.
 - No celular: abas em cima, botões grandes, respeita a área segura do aparelho.
@@ -145,10 +191,13 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 
 ### Pendente
 - **Testar com nota e lista reais da loja** (é o próximo passo).
-- Configurar a chave do Gemini (aba Ajustes) — sem ela, só a lista digitada funciona.
+- Chave do Gemini **já configurada** neste PC (em `dados/config.json`, fora do Git).
+  Na loja, colar de novo pela aba Ajustes. Assistente testado com o banco real.
 - Preencher os dados da loja em Ajustes (saem no PDF do orçamento).
 - Apontar para o banco da loja (hoje aponta para `C:/SolusTeste/EC.FDB`).
 - Não implementado de propósito: emitir NF-e pela ferramenta. A nota sai do Solus.
+- Cadastrar em Ajustes a pasta das notas do PC do certificado (compartilhada na rede),
+  senão o PDF da nota não é encontrado a partir do servidor.
 
 ## Cuidados
 

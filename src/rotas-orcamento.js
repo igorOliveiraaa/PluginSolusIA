@@ -16,6 +16,7 @@ import { montarOrcamento, recalcularItem } from './logica/orcamento.js';
 import { buscarPorCodigo, buscarPorDescricao, buscarPorBarras } from './db/produtos.js';
 import { gravarOrcamento, apagarOrcamento } from './db/orcamento.js';
 import { gerarPdfOrcamento, textoDoWhatsApp, dadosDaLoja } from './pdf-orcamento.js';
+import { acompanharOrcamento, acompanhamentoDoOrcamento } from './tarefas.js';
 
 export const rotas = express.Router();
 
@@ -241,12 +242,31 @@ rotas.post('/api/orcamento/adicionar', exigirLogin, async (req, res) => {
 /** Grava o orcamento no Solus. */
 rotas.post('/api/orcamento/gravar', exigirLogin, exigirPermissao('fazerOrcamento'), async (req, res) => {
   try {
-    const { id, observacao } = req.body;
+    const { id, observacao, pagamento } = req.body;
     const orcamento = pegar(id);
     if (observacao !== undefined) orcamento.observacao = String(observacao);
 
-    const resultado = await gravarOrcamento({ orcamento, operador: req.operador });
+    const dadosPagamento = { ...(pagamento || {}) };
+    if (!dadosPagamento.observacao) dadosPagamento.observacao = orcamento.observacao || '';
+
+    const resultado = await gravarOrcamento({
+      orcamento,
+      operador: req.operador,
+      pagamento: dadosPagamento,
+    });
     orcamento.numero = resultado.numero;
+    orcamento.pagamento = dadosPagamento;
+
+    // passa a acompanhar: vira tarefa ate a venda ser finalizada e a nota sair
+    acompanharOrcamento({
+      numero: resultado.numero,
+      cliente: resultado.cliente,
+      codigoCliente: resultado.codigoCliente,
+      celular: orcamento.cliente?.celular || orcamento.cliente?.telefone || '',
+      total: resultado.total,
+      operador: req.operador.nome,
+      validadeDias: Number(dadosPagamento.validadeDias) || 7,
+    });
 
     res.json({ ok: true, ...resultado });
   } catch (e) { erro(res, e, 500); }

@@ -12,7 +12,7 @@ import { testarConexao, reiniciarConexao } from './db/firebird.js';
 import { limparCacheColunas, buscarPorBarras, buscarPorCodigo, buscarPorDescricao } from './db/produtos.js';
 import { aplicarNota, desfazer } from './db/gravacao.js';
 import { lerXmlNfe, pareceXmlNfe } from './leitura/xml.js';
-import { lerDocumentoComIA, testarChave, listarModelos } from './leitura/ia.js';
+import { lerDocumentoComIA, testarChave, listarModelos, interpretarObservacao } from './leitura/ia.js';
 import { montarConferencia } from './logica/conferencia.js';
 import { analisarItem } from './logica/precos.js';
 import {
@@ -20,8 +20,9 @@ import {
 } from './historico.js';
 import { rotas as rotasOrcamento } from './rotas-orcamento.js';
 import { rotasAssistente } from './rotas-assistente.js';
+import { rotasVendas } from './rotas-vendas.js';
 import { exigirLogin } from './db/operadores.js';
-import { obterCertificado, ipsDaMaquina } from './https-local.js';
+import { obterCertificado, ipsDaMaquina, ehRedeLocal } from './https-local.js';
 
 garantirPastas();
 
@@ -99,8 +100,19 @@ app.post('/api/ler-nota', exigirLogin, upload.array('arquivos', 10), async (req,
       cnpjFornecedor: nota.fornecedor?.cnpj,
     });
 
-    // 4) casa com os produtos, calcula custo e preco
-    const conferencia = await montarConferencia(nota);
+    // 4) se a pessoa escreveu uma observacao, a IA entende e o sistema calcula
+    let ajustes = null;
+    if (observacao) {
+      try {
+        ajustes = await interpretarObservacao(observacao, nota);
+      } catch (falha) {
+        // sem a IA a nota continua valendo; so nao aplica o ajuste
+        console.error('[observacao]', falha.message);
+      }
+    }
+
+    // 5) casa com os produtos, calcula custo e preco
+    const conferencia = await montarConferencia(nota, ajustes);
     const id = guardarConferencia(conferencia);
 
     res.json({
@@ -361,12 +373,30 @@ app.get('/api/modelos-ia', exigirLogin, async (req, res) => {
 // rotas de login, cliente e orcamento
 app.use(rotasOrcamento);
 app.use(rotasAssistente);
+app.use(rotasVendas);
 
 const porta = carregarConfig().servidor?.porta || 3535;
 const portaSegura = Number(porta) + 1;
 
-// HTTP: serve para usar aqui no proprio PC servidor
-app.listen(porta, '0.0.0.0');
+// Se o Plugin ja estiver aberto (alguem deu dois cliques duas vezes), a porta
+// esta ocupada. Em vez do erro em ingles, explica e fecha esta segunda copia.
+function portaOcupada(erro) {
+  if (erro.code !== 'EADDRINUSE') throw erro;
+  console.log('\n==================================================');
+  console.log('  O Plugin IA Solus JA ESTA ABERTO neste computador.');
+  console.log('==================================================');
+  console.log('  Nao precisa abrir de novo. Procure a outra janela');
+  console.log('  preta na barra de tarefas, ou acesse direto:');
+  console.log(`     http://localhost:${porta}\n`);
+  process.exit(0);
+}
+
+// HTTP: serve para usar aqui no proprio PC servidor.
+// Espera a porta confirmar antes de seguir, para nao mostrar enderecos de uma
+// copia que vai fechar em seguida por ja existir outra aberta.
+await new Promise((pronto) => {
+  app.listen(porta, '0.0.0.0', pronto).on('error', portaOcupada);
+});
 
 // HTTPS: e o que o celular precisa para instalar como aplicativo e para o
 // botao de compartilhar o orcamento no WhatsApp funcionar.
@@ -375,7 +405,7 @@ app.listen(porta, '0.0.0.0');
 let certificadoOk = false;
 try {
   const { cert, key, novo } = await obterCertificado();
-  https.createServer({ cert, key }, app).listen(portaSegura, '0.0.0.0');
+  https.createServer({ cert, key }, app).listen(portaSegura, '0.0.0.0').on('error', portaOcupada);
   certificadoOk = true;
   if (novo) console.log('\n[certificado desta rede criado]');
 } catch (erro) {
@@ -387,7 +417,10 @@ try {
 mostrarEnderecos();
 
 function mostrarEnderecos() {
-  const ips = ipsDaMaquina();
+  // So mostra o endereco da rede da loja. Placas falsas (modulo de seguranca
+  // de banco, Bluetooth, VPN) geram enderecos que so confundem quem vai digitar.
+  const todos = ipsDaMaquina().filter((ip) => !ip.startsWith('169.254.'));
+  const ips = todos.some(ehRedeLocal) ? todos.filter(ehRedeLocal) : todos;
   console.log('\n==================================================');
   console.log('  Plugin IA Solus');
   console.log('==================================================');

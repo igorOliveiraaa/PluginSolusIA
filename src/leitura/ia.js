@@ -6,6 +6,7 @@
 // vem daqui passa pela tela de conferencia antes de gravar.
 
 import { carregarConfig } from '../config.js';
+import { chamarGemini, textoDaResposta } from './gemini.js';
 
 const ENDERECO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -99,40 +100,22 @@ ${observacaoDoUsuario.trim()}
  * da mesma nota (frente/verso, ou nota que ocupa mais de uma pagina).
  */
 export async function lerDocumentoComIA(arquivos, observacao = '') {
-  const cfg = carregarConfig();
-  const chave = cfg.ia?.chave?.trim();
-  if (!chave) {
-    throw new Error('Falta configurar a chave da IA (Gemini) na tela de Configuracao.');
-  }
-
-  const modelo = cfg.ia?.modelo || 'gemini-2.5-flash';
   const partes = [{ text: montarInstrucoes(observacao) }];
   for (const arquivo of arquivos) {
     partes.push({ inline_data: { mime_type: arquivo.tipo, data: arquivo.base64 } });
   }
 
-  const resposta = await fetch(
-    `${ENDERECO_BASE}/models/${encodeURIComponent(modelo)}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
-      body: JSON.stringify({
-        contents: [{ parts: partes }],
-        generationConfig: {
-          temperature: 0,               // leitura de documento nao pode ser "criativa"
-          responseMimeType: 'application/json',
-          responseSchema: FORMATO_RESPOSTA,
-        },
-      }),
-    }
-  );
-
-  if (!resposta.ok) {
-    throw new Error(await traduzErroDaIA(resposta));
-  }
-
-  const dados = await resposta.json();
-  const texto = dados?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+  // chamarGemini ja tenta de novo sozinho e troca de modelo se o Google estiver cheio
+  const dados = await chamarGemini({
+    contents: [{ parts: partes }],
+    generationConfig: {
+      temperature: 0,               // leitura de documento nao pode ser "criativa"
+      responseMimeType: 'application/json',
+      responseSchema: FORMATO_RESPOSTA,
+    },
+  });
+  const modelo = dados.modeloUsado;
+  const texto = textoDaResposta(dados);
   if (!texto.trim()) {
     const motivo = dados?.candidates?.[0]?.finishReason || 'sem resposta';
     throw new Error(`A IA nao conseguiu ler o documento (${motivo}). Tente uma foto mais nitida.`);
@@ -344,12 +327,6 @@ Sua tarefa e transformar isso numa lista de itens. REGRAS:
  * Devolve os itens "crus" - quem procura no estoque e o modulo de orcamento.
  */
 export async function lerListaDeCompras(arquivos = [], textoDigitado = '', observacao = '') {
-  const cfg = carregarConfig();
-  const chave = cfg.ia?.chave?.trim();
-  if (!chave) throw new Error('Falta configurar a chave da IA (Gemini) na tela de Ajustes.');
-
-  const modelo = cfg.ia?.modelo || 'gemini-2.5-flash';
-
   let instrucoes = INSTRUCOES_LISTA;
   if (observacao?.trim()) {
     instrucoes += `\n\nOBSERVACAO DE QUEM ENVIOU:\n"""\n${observacao.trim()}\n"""`;
@@ -363,26 +340,15 @@ export async function lerListaDeCompras(arquivos = [], textoDigitado = '', obser
     partes.push({ inline_data: { mime_type: arquivo.tipo, data: arquivo.base64 } });
   }
 
-  const resposta = await fetch(
-    `${ENDERECO_BASE}/models/${encodeURIComponent(modelo)}:generateContent`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
-      body: JSON.stringify({
-        contents: [{ parts: partes }],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: 'application/json',
-          responseSchema: FORMATO_LISTA,
-        },
-      }),
-    }
-  );
-
-  if (!resposta.ok) throw new Error(await traduzErroDaIA(resposta));
-
-  const dados = await resposta.json();
-  const texto = dados?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+  const dados = await chamarGemini({
+    contents: [{ parts: partes }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+      responseSchema: FORMATO_LISTA,
+    },
+  });
+  const texto = textoDaResposta(dados);
   if (!texto.trim()) {
     throw new Error('A IA nao conseguiu ler a lista. Tente uma foto mais nitida.');
   }
@@ -408,5 +374,124 @@ export async function lerListaDeCompras(arquivos = [], textoDigitado = '', obser
       observacao: String(item.observacao || '').trim(),
       confianca: String(item.confianca || 'media').trim(),
     })),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// A observacao do operador vira AJUSTE DE CALCULO
+// ---------------------------------------------------------------------------
+//
+// Divisao de trabalho, de proposito:
+//   - a IA ENTENDE o que foi escrito ("tem 50 reais a mais de taxa nessa nota");
+//   - o SISTEMA faz a conta (rateia os 50 reais entre os itens, na proporcao).
+// A IA nunca devolve um custo pronto: ela devolve o que entendeu, e a conta sai
+// sempre igual. E a tela mostra o que ela entendeu, para a pessoa conferir antes.
+
+const FORMATO_AJUSTE = {
+  type: 'object',
+  properties: {
+    entendi: { type: 'string' },
+    acrescimoNaNota: { type: 'number' },
+    descontoNaNota: { type: 'number' },
+    porItem: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          numero: { type: 'integer' },
+          descricao: { type: 'string' },
+          unidadesPorCaixa: { type: 'integer' },
+          acrescimo: { type: 'number' },
+          desconto: { type: 'number' },
+          motivo: { type: 'string' },
+        },
+      },
+    },
+    naoEntendi: { type: 'string' },
+  },
+  required: ['entendi'],
+};
+
+/**
+ * Le a observacao escrita pelo operador e devolve AJUSTES estruturados.
+ * Nada de valor final: so o que a IA entendeu, para o sistema calcular.
+ */
+export async function interpretarObservacao(observacao, nota) {
+  const texto = String(observacao || '').trim();
+  if (!texto) return null;
+
+  const itens = (nota.itens || []).slice(0, 60).map((i) => ({
+    numero: i.numero,
+    descricao: i.descricao,
+    unidade: i.unidadeComercial,
+    quantidade: i.quantidadeUnidades,
+    valorTotal: i.valorProduto,
+  }));
+
+  const instrucoes = `Uma pessoa da loja escreveu uma observacao sobre esta nota de compra.
+Sua tarefa e so ENTENDER o que ela quis dizer e devolver de forma organizada.
+NAO calcule custo, NAO calcule preco, NAO invente valor.
+
+O que voce pode devolver:
+- acrescimoNaNota: valor em reais que deve ser somado ao custo da nota inteira
+  (taxa, imposto a mais, despesa que nao veio na nota). O sistema rateia sozinho.
+- descontoNaNota: valor em reais a diminuir da nota inteira.
+- porItem: ajustes de um item especifico. Use o "numero" do item da lista abaixo.
+    unidadesPorCaixa -> quando a pessoa disser quantas unidades vem na caixa
+    acrescimo/desconto -> valor em reais so daquele item
+- entendi: uma frase curta, em portugues simples, dizendo o que voce entendeu.
+- naoEntendi: se parte do texto nao virou ajuste nenhum, escreva aqui.
+
+Se a observacao nao falar de valor nem de quantidade (ex.: "conferir validade"),
+devolva os valores em 0 e explique em "entendi" que era so um recado.
+
+ITENS DESTA NOTA:
+${JSON.stringify(itens)}
+
+OBSERVACAO ESCRITA:
+"""
+${texto}
+"""`;
+
+  const dados = await chamarGemini({
+    contents: [{ parts: [{ text: instrucoes }] }],
+    generationConfig: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+      responseSchema: FORMATO_AJUSTE,
+    },
+  });
+
+  const resposta = textoDaResposta(dados);
+  if (!resposta) return null;
+
+  let bruto;
+  try {
+    bruto = JSON.parse(resposta);
+  } catch {
+    return null;
+  }
+
+  const porItem = (bruto.porItem || [])
+    .map((a) => ({
+      numero: Number(a.numero) || 0,
+      descricao: String(a.descricao || '').trim(),
+      unidadesPorCaixa: Number(a.unidadesPorCaixa) || 0,
+      acrescimo: Number(a.acrescimo) || 0,
+      desconto: Number(a.desconto) || 0,
+      motivo: String(a.motivo || '').trim(),
+    }))
+    .filter((a) => a.numero > 0 && (a.unidadesPorCaixa > 0 || a.acrescimo || a.desconto));
+
+  const acrescimoNaNota = Number(bruto.acrescimoNaNota) || 0;
+  const descontoNaNota = Number(bruto.descontoNaNota) || 0;
+
+  return {
+    entendi: String(bruto.entendi || '').trim(),
+    naoEntendi: String(bruto.naoEntendi || '').trim(),
+    acrescimoNaNota,
+    descontoNaNota,
+    porItem,
+    temAjuste: Boolean(acrescimoNaNota || descontoNaNota || porItem.length),
   };
 }

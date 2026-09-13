@@ -15,7 +15,7 @@ import {
   buscarIrmaos,
   semelhanca,
 } from '../db/produtos.js';
-import { calcularCustos, explicarCusto } from './custo.js';
+import { calcularCustos, explicarCusto, aplicarAjustes } from './custo.js';
 import { analisarItem } from './precos.js';
 import { carregarConfig } from '../config.js';
 
@@ -70,17 +70,20 @@ async function encontrarProduto(item, codigoFornecedor) {
 /**
  * Recebe a nota lida (do XML ou da IA) e devolve tudo pronto para a tela.
  */
-export async function montarConferencia(nota) {
+export async function montarConferencia(nota, ajustes = null) {
   const cfg = carregarConfig();
   const regras = cfg.regras || {};
 
   // 1) custo real de cada item (frete, IPI, ST, credito de imposto)
-  const itensComCusto = calcularCustos(nota, {
+  let itensComCusto = calcularCustos(nota, {
     regime: cfg.empresa?.regime || 'simples',
     somarFrete: regras.somarFrete !== false,
     somarIPI: regras.somarIPI !== false,
     somarST: regras.somarST !== false,
   });
+
+  // o que a pessoa escreveu na observacao (a IA entendeu, o codigo calcula)
+  itensComCusto = aplicarAjustes(itensComCusto, ajustes);
 
   const itens = [];
   for (const item of itensComCusto) {
@@ -125,6 +128,7 @@ export async function montarConferencia(nota) {
   return {
     ...nota,
     itens,
+    ajustes: ajustes?.temAjuste ? ajustes : null,
     resumo: montarResumo(itens, nota),
   };
 }

@@ -5,6 +5,7 @@ import { conferirSessao, mostrarQuemEntrou } from './login.js';
 import { aplicarIcones } from './icones.js';
 import './orcamento.js';
 import './assistente.js';
+import { carregarTarefas, acompanharDeFundo } from './tarefas.js';
 import { iniciarTelaDeNota } from './app.js';
 
 // navegacao das abas
@@ -21,10 +22,17 @@ mostrarQuemEntrou();
 iniciarTelaDeNota();
 
 // se a sessao ainda valer, entra direto; senao a tela de login aparece
-conferirSessao();
+conferirSessao().then((entrou) => {
+  if (entrou) {
+    carregarTarefas();
+    acompanharDeFundo();
+  }
+});
 
 document.addEventListener('entrou', () => {
   mostrarTela('assistente');
+  carregarTarefas();
+  acompanharDeFundo();
 });
 
 if ('serviceWorker' in navigator) {

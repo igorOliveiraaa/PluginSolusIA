@@ -30,6 +30,13 @@ export function ipsDaMaquina() {
   return ips;
 }
 
+/** Endereco de rede interna (WiFi/cabo da loja). Os outros sao VPN, celular roteado etc. */
+export function ehRedeLocal(ip) {
+  return /^192.168./.test(ip)
+    || /^10./.test(ip)
+    || /^172.(1[6-9]|2d|3[01])./.test(ip);
+}
+
 /**
  * Devolve o certificado, gerando um novo se nao existir ou se o IP da maquina
  * tiver mudado (o certificado precisa citar o IP que o celular vai acessar).

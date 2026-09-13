@@ -89,6 +89,8 @@ export async function autenticar(nome, senha, origem = '') {
     codigo: String(operador.CODIGO || '').trim(),
     nome: lerTexto(operador.NOME),
     gerente,
+    // usado para marcar quem vendeu, quando o operador tambem e vendedor no Solus
+    codigoVendedor: String(operador.CODVENDEDOR || '').trim(),
     permissoes: {
       // gerente pode tudo; os outros seguem o que esta marcado no Solus
       verCusto: gerente || ehSim(operador.CUSTO),

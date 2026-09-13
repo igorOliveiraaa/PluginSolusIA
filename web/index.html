@@ -50,6 +50,7 @@
     <button class="aba" data-tela="enviar">Nota</button>
     <button class="aba" data-tela="orcamento">Orçamento</button>
     <button class="aba" data-tela="cliente">Cliente</button>
+    <button class="aba" data-tela="tarefas">Tarefas</button>
     <button class="aba" data-tela="historico">Histórico</button>
     <button class="aba" data-tela="config">Ajustes</button>
   </nav>
@@ -213,6 +214,45 @@
     <div id="cabecalho-orcamento" class="cartao"></div>
     <div id="itens-orcamento"></div>
 
+    <div class="cartao" id="cartao-pagamento">
+      <h2>Pagamento e entrega</h2>
+      <p class="ajuda">Preenchendo aqui, a venda já abre pronta no Solus.</p>
+
+      <label class="campo">
+        <span>Forma de pagamento</span>
+        <select id="forma-pagamento"></select>
+      </label>
+
+      <div class="linha-dupla">
+        <label class="campo">
+          <span>Frete <em>(R$, opcional)</em></span>
+          <input type="number" step="0.01" min="0" id="valor-frete" placeholder="0,00">
+        </label>
+        <label class="campo">
+          <span>Frete por conta de</span>
+          <select id="modalidade-frete">
+            <option value="9">Sem frete</option>
+            <option value="0">Nós (entrega)</option>
+            <option value="1">Cliente (retira)</option>
+            <option value="2">Transportadora</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="linha-dupla">
+        <label class="campo">
+          <span>Prazo de entrega</span>
+          <input type="text" id="prazo-entrega" placeholder="ex.: 3 dias úteis">
+        </label>
+        <label class="campo">
+          <span>Validade do orçamento</span>
+          <input type="number" min="1" max="90" id="validade-orcamento" value="7">
+        </label>
+      </div>
+
+      <div id="aviso-pagamento" class="item-aviso escondido"></div>
+    </div>
+
     <div class="cartao">
       <button class="botao secundario largura-total" id="btn-adicionar-item" data-icone="mais"><span>Adicionar outro produto</span></button>
       <label class="campo">
@@ -250,6 +290,19 @@
     </div>
 
     <div id="dados-cnpj" class="cartao"></div>
+  </section>
+
+  <!-- ===================== TAREFAS ===================== -->
+  <section id="tela-tarefas" class="tela">
+    <div class="cartao">
+      <h2>O que falta fazer</h2>
+      <p class="ajuda" style="margin:0">
+        O Plugin monta o orçamento; finalizar a venda e gerar a nota é no Solus.
+        Ele fica de olho e tira da lista sozinho quando estiver feito.
+      </p>
+      <button class="botao secundario largura-total" id="btn-atualizar-tarefas">Atualizar agora</button>
+    </div>
+    <div id="lista-tarefas"></div>
   </section>
 
   <!-- ===================== HISTÓRICO ===================== -->
@@ -306,6 +359,21 @@
         <label class="campo"><span>UF</span><input type="text" id="cfg-loja-uf" maxlength="2"></label>
       </div>
       <label class="campo"><span>Telefone</span><input type="text" id="cfg-loja-telefone"></label>
+    </div>
+
+    <div class="cartao">
+      <h2>Pasta das notas fiscais</h2>
+      <p class="ajuda">
+        É de onde sai o PDF da nota para mandar ao cliente. Quem emite é o Solus,
+        no PC do certificado. Compartilhe aquela pasta na rede e escreva o caminho
+        aqui — uma por linha.
+      </p>
+      <label class="campo">
+        <span>Pastas <em>(ex.: \CAIXA1ACBrMonitorPLUSLogs)</em></span>
+        <textarea id="cfg-pastas-notas" rows="3" placeholder="C:/ACBrMonitorPLUS/Logs"></textarea>
+      </label>
+      <button id="btn-testar-pastas" class="botao secundario">Testar pastas</button>
+      <div id="resultado-pastas" class="resultado-teste"></div>
     </div>
 
     <div class="cartao">

@@ -20,9 +20,18 @@ A importação de nota do Solus lança **"1 caixa"** quando o fornecedor manda
 O Plugin usa a unidade tributável da NF-e (que traz a quantidade real em unidades)
 e converte: 5 caixas viram 60 unidades, com o custo por unidade correto.
 
-## Como rodar
+## Como instalar (no PC servidor da loja)
 
-Precisa de **Node.js 20+** e do Firebird rodando com o banco do Solus.
+Só o PC que guarda o banco do Solus instala. Os outros PCs e celulares só abrem o link.
+
+1. Baixe a pasta do projeto para esse PC.
+2. Dois cliques em **`INSTALAR.bat`** (se faltar o Node.js, ele abre o site para baixar).
+3. Dois cliques em **`INICIAR-PLUGIN.bat`**. A janela preta mostra os links de acesso.
+4. Na primeira vez, se o Windows perguntar sobre o firewall, clique em **Permitir acesso**
+   (senão os celulares não conseguem entrar).
+5. Opcional: **`INICIAR-COM-O-WINDOWS.bat`** faz o Plugin abrir sozinho quando o PC liga.
+
+Pelo terminal, o equivalente é:
 
 ```bash
 npm install

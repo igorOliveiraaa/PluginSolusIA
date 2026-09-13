@@ -67,6 +67,7 @@ async function escolherCliente(codigo) {
     $('#resultado-clientes').innerHTML = '';
     $('#busca-cliente').value = '';
     desenharClienteEscolhido(compras);
+    carregarOpcoesDePagamento();
   } catch (erro) {
     avisar(erro.message, 'erro');
   }
@@ -162,6 +163,7 @@ $('#btn-montar').addEventListener('click', async () => {
     estado.id = resposta.id;
     estado.gravado = null;
     desenharOrcamento();
+    carregarOpcoesDePagamento();
     mostrarTela('conferir-orcamento');
   } catch (erro) {
     avisar(erro.message, 'erro');
@@ -445,6 +447,95 @@ async function usarProduto(codigo) {
 }
 
 // ---------------------------------------------------------------------------
+// Pagamento e entrega
+// ---------------------------------------------------------------------------
+
+/**
+ * Busca as formas de pagamento do Solus e ja sugere a que esse cliente costuma usar.
+ * E o "inteligente" aqui: em vez de perguntar do zero, vem preenchido com o
+ * historico do proprio cliente, e a pessoa so confirma.
+ */
+async function carregarOpcoesDePagamento() {
+  const seletor = $('#forma-pagamento');
+  if (!seletor) return;
+
+  try {
+    const codigo = estado.cliente?.codigo || '';
+    const dados = await api('/api/pagamento/opcoes' + (codigo ? '?cliente=' + encodeURIComponent(codigo) : ''));
+    estado.formasDePagamento = dados.formas || [];
+
+    const sugerida = dados.sugestao?.formaDePagamento || '';
+    seletor.innerHTML = '<option value="">— escolha —</option>'
+      + estado.formasDePagamento.map((f) =>
+        `<option value="${escapar(f.nome)}" ${f.nome === sugerida ? 'selected' : ''}>${escapar(f.rotulo)}</option>`).join('');
+
+    const aviso = $('#aviso-pagamento');
+    if (dados.sugestao) {
+      aviso.textContent = `Da última vez esse cliente pagou em ${dados.sugestao.formaDePagamento.trim()}`
+        + (dados.sugestao.frete > 0 ? ` e teve frete de ${dinheiro(dados.sugestao.frete)}.` : '.');
+      aviso.className = 'item-aviso info';
+      if (dados.sugestao.frete > 0 && !$('#valor-frete').value) {
+        $('#valor-frete').value = dados.sugestao.frete.toFixed(2);
+        $('#modalidade-frete').value = dados.sugestao.modalidadeFrete || '0';
+      }
+    } else {
+      aviso.className = 'item-aviso escondido';
+    }
+
+    // se a observação já disser a forma de pagamento ou o frete, aproveita
+    aproveitarObservacao();
+  } catch {
+    seletor.innerHTML = '<option value="">— escolha —</option>';
+  }
+}
+
+/**
+ * Lê o que foi escrito na observação e preenche o que der ("boleto 28 dias",
+ * "frete 50"). Quem calcula continua sendo o sistema; isto só evita redigitar.
+ */
+function aproveitarObservacao() {
+  const texto = ((estado.orcamento?.observacao || '') + ' ' + ($('#obs-orcamento')?.value || '')).toLowerCase();
+  if (!texto.trim()) return;
+
+  if (!$('#forma-pagamento').value) {
+    const achada = (estado.formasDePagamento || []).find((f) => {
+      const nome = f.rotulo.toLowerCase();
+      return texto.includes(nome) || (nome.startsWith('cartao') && texto.includes('cartão'));
+    });
+    if (achada) $('#forma-pagamento').value = achada.nome;
+  }
+
+  if (!$('#valor-frete').value) {
+    const frete = texto.match(/frete\s*(?:de\s*)?r?\$?\s*([\d.,]+)/);
+    if (frete) {
+      const valor = Number(frete[1].replace(/./g, '').replace(',', '.'));
+      if (valor > 0) {
+        $('#valor-frete').value = valor.toFixed(2);
+        if ($('#modalidade-frete').value === '9') $('#modalidade-frete').value = '0';
+      }
+    }
+  }
+
+  if (!$('#prazo-entrega').value) {
+    const prazo = texto.match(/(\d+)\s*dias?\s*(?:uteis|úteis)?/);
+    if (prazo && texto.includes('entrega')) $('#prazo-entrega').value = prazo[0];
+  }
+}
+
+function lerPagamentoDaTela() {
+  return {
+    formaDePagamento: $('#forma-pagamento')?.value || '',
+    frete: Number($('#valor-frete')?.value) || 0,
+    modalidadeFrete: $('#modalidade-frete')?.value || '9',
+    entrega: $('#prazo-entrega')?.value || '',
+    validadeDias: Number($('#validade-orcamento')?.value) || 7,
+    observacao: $('#obs-orcamento')?.value || '',
+    vendedor: sessao.operador?.nome || '',
+    codigoVendedor: sessao.operador?.codigoVendedor || '',
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Gravar, PDF e compartilhar
 // ---------------------------------------------------------------------------
 
@@ -463,7 +554,11 @@ $('#btn-gravar-orcamento').addEventListener('click', async () => {
   try {
     const resultado = await api('/api/orcamento/gravar', {
       method: 'POST',
-      body: JSON.stringify({ id: estado.id, observacao: $('#obs-orcamento').value }),
+      body: JSON.stringify({
+        id: estado.id,
+        observacao: $('#obs-orcamento').value,
+        pagamento: lerPagamentoDaTela(),
+      }),
     });
     estado.gravado = resultado;
     estado.orcamento.numero = resultado.numero;
