@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <title>Plugin IA Solus</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icone.svg">
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<!-- ===================== LOGIN ===================== -->
+<section id="tela-login" class="tela-login escondido">
+  <div class="caixa-login">
+    <div class="login-marca">
+      <div class="login-icone">📋</div>
+      <h1>Plugin IA Solus</h1>
+      <p class="ajuda">Entre com o mesmo usuário e senha do Solus</p>
+    </div>
+
+    <label class="campo">
+      <span>Usuário</span>
+      <input type="text" id="login-usuario" list="lista-usuarios" autocomplete="username"
+             placeholder="seu nome no Solus">
+      <datalist id="lista-usuarios"></datalist>
+    </label>
+
+    <label class="campo">
+      <span>Senha</span>
+      <input type="password" id="login-senha" autocomplete="current-password">
+    </label>
+
+    <div id="erro-login" class="item-aviso erro escondido"></div>
+    <button class="botao principal largura-total" id="btn-entrar">Entrar</button>
+  </div>
+</section>
+
+<header class="topo">
+  <div class="topo-titulo">
+    <strong>Plugin IA Solus</strong>
+    <span class="topo-direita">
+      <span id="quem-entrou" class="topo-sub"></span>
+      <button id="btn-sair" class="botao-texto" title="Sair">sair</button>
+    </span>
+  </div>
+  <nav class="abas">
+    <button class="aba ativa" data-tela="enviar">Nota</button>
+    <button class="aba" data-tela="orcamento">Orçamento</button>
+    <button class="aba" data-tela="cliente">Cliente</button>
+    <button class="aba" data-tela="historico">Histórico</button>
+    <button class="aba" data-tela="config">Ajustes</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ===================== ENTRADA DE NOTA ===================== -->
+  <section id="tela-enviar" class="tela ativa">
+    <div class="cartao">
+      <h2>Entrada de nota</h2>
+      <p class="ajuda">
+        Envie o <strong>XML</strong> (mais exato), o <strong>PDF</strong> da nota
+        ou uma <strong>foto</strong>. A ferramenta atualiza estoque, custo e preço.
+      </p>
+
+      <div id="area-arquivo" class="area-arquivo">
+        <div class="area-icone">📄</div>
+        <div class="area-texto">
+          <strong>Toque para escolher</strong>
+          <span>ou arraste o arquivo aqui</span>
+        </div>
+        <input type="file" id="arquivo" multiple accept=".xml,.pdf,image/*" hidden>
+      </div>
+
+      <button id="btn-camera" class="botao secundario largura-total">📷 Tirar foto da nota</button>
+      <input type="file" id="camera" accept="image/*" capture="environment" multiple hidden>
+
+      <ul id="lista-arquivos" class="lista-arquivos"></ul>
+
+      <label class="campo">
+        <span>Observação para a IA <em>(opcional)</em></span>
+        <textarea id="observacao" rows="3"
+          placeholder="Ex.: a caixa de sabão vem com 12 unidades; tem um imposto a mais nessa nota"></textarea>
+      </label>
+
+      <label class="campo">
+        <span>Quem está lançando</span>
+        <input type="text" id="operador" placeholder="Seu nome">
+      </label>
+
+      <button id="btn-ler" class="botao principal largura-total" disabled>Ler a nota</button>
+    </div>
+
+    <div id="carregando" class="cartao escondido">
+      <div class="girando"></div>
+      <p id="texto-carregando">Lendo a nota...</p>
+      <p class="ajuda">Pode levar alguns segundos.</p>
+    </div>
+
+    <div id="erro-leitura" class="cartao alerta-erro escondido"></div>
+  </section>
+
+  <!-- ===================== CONFERÊNCIA DA NOTA ===================== -->
+  <section id="tela-conferencia" class="tela">
+    <div id="cabecalho-nota" class="cartao"></div>
+    <div id="aviso-repetida" class="cartao alerta-aviso escondido"></div>
+    <div id="resumo-nota" class="cartao"></div>
+
+    <div class="filtros">
+      <button class="filtro ativo" data-filtro="todos">Todos</button>
+      <button class="filtro" data-filtro="atencao">Precisam de atenção</button>
+      <button class="filtro" data-filtro="novos">Produtos novos</button>
+      <button class="filtro" data-filtro="caixa">Vieram em caixa</button>
+    </div>
+
+    <div id="lista-itens"></div>
+
+    <div class="rodape-acoes">
+      <button id="btn-voltar" class="botao secundario">Cancelar</button>
+      <button id="btn-gravar" class="botao principal">Gravar no Solus</button>
+    </div>
+  </section>
+
+  <section id="tela-resultado" class="tela">
+    <div id="conteudo-resultado" class="cartao"></div>
+  </section>
+
+  <!-- ===================== ORÇAMENTO ===================== -->
+  <section id="tela-orcamento" class="tela">
+    <div class="cartao">
+      <h2>1. Para qual cliente?</h2>
+      <p class="ajuda">Com o cliente escolhido, dá pra ver quanto ele pagou da última vez.</p>
+
+      <div id="cliente-escolhido" class="escondido"></div>
+
+      <label class="campo">
+        <span>Procurar cliente <em>(nome ou CNPJ)</em></span>
+        <input type="text" id="busca-cliente" placeholder="digite o nome ou o CNPJ">
+      </label>
+      <div id="resultado-clientes" class="resultado-busca"></div>
+      <p class="ajuda">Sem cliente, o orçamento sai como "consumidor".</p>
+    </div>
+
+    <div class="cartao">
+      <h2>2. O que o cliente quer</h2>
+      <p class="ajuda">
+        Mande a foto da lista (pode ser escrita à mão), um print do WhatsApp,
+        um PDF — ou digite os itens.
+      </p>
+
+      <div id="area-lista" class="area-arquivo">
+        <div class="area-icone">🧾</div>
+        <div class="area-texto">
+          <strong>Toque para escolher</strong>
+          <span>foto, print ou PDF da lista</span>
+        </div>
+        <input type="file" id="arquivo-lista" multiple accept=".pdf,image/*" hidden>
+      </div>
+
+      <button id="btn-foto-lista" class="botao secundario largura-total">📷 Tirar foto da lista</button>
+      <input type="file" id="camera-lista" accept="image/*" capture="environment" multiple hidden>
+
+      <ul id="arquivos-lista" class="lista-arquivos"></ul>
+
+      <label class="campo">
+        <span>Ou digite os itens</span>
+        <textarea id="texto-lista" rows="4"
+          placeholder="2 saco de lixo 100 litros&#10;10 detergente ypê 500ml&#10;1 vassoura"></textarea>
+      </label>
+
+      <label class="campo">
+        <span>Observação <em>(opcional)</em></span>
+        <textarea id="obs-lista" rows="2"
+          placeholder="Ex.: é para entrega; o cliente quer da marca mais barata"></textarea>
+      </label>
+
+      <button id="btn-montar" class="botao principal largura-total" disabled>Montar orçamento</button>
+    </div>
+
+    <div id="montando" class="cartao escondido">
+      <div class="girando"></div>
+      <p>Lendo a lista e procurando no estoque...</p>
+    </div>
+  </section>
+
+  <!-- ===================== CONFERIR ORÇAMENTO ===================== -->
+  <section id="tela-conferir-orcamento" class="tela">
+    <div id="cabecalho-orcamento" class="cartao"></div>
+    <div id="itens-orcamento"></div>
+
+    <div class="cartao">
+      <button class="botao secundario largura-total" id="btn-adicionar-item">
+        + Adicionar outro produto
+      </button>
+      <label class="campo">
+        <span>Observação no orçamento <em>(sai no PDF)</em></span>
+        <textarea id="obs-orcamento" rows="2"
+          placeholder="Ex.: entrega em até 3 dias; pagamento em boleto 28 dias"></textarea>
+      </label>
+    </div>
+
+    <div class="rodape-acoes">
+      <button id="btn-voltar-orcamento" class="botao secundario">Cancelar</button>
+      <div id="total-orcamento" class="total-rodape"></div>
+      <button id="btn-gravar-orcamento" class="botao principal">Gravar no Solus</button>
+    </div>
+  </section>
+
+  <section id="tela-resultado-orcamento" class="tela">
+    <div id="resultado-orcamento" class="cartao"></div>
+  </section>
+
+  <!-- ===================== CLIENTE ===================== -->
+  <section id="tela-cliente" class="tela">
+    <div class="cartao">
+      <h2>Cadastrar cliente pelo CNPJ</h2>
+      <p class="ajuda">
+        Digite o CNPJ e a ferramenta busca os dados na Receita Federal e preenche tudo.
+      </p>
+
+      <label class="campo">
+        <span>CNPJ</span>
+        <input type="tel" id="cnpj-consulta" inputmode="numeric" placeholder="00.000.000/0000-00">
+      </label>
+
+      <button class="botao principal largura-total" id="btn-consultar-cnpj">Buscar dados</button>
+    </div>
+
+    <div id="dados-cnpj" class="cartao"></div>
+  </section>
+
+  <!-- ===================== HISTÓRICO ===================== -->
+  <section id="tela-historico" class="tela">
+    <div class="cartao">
+      <h2>Notas lançadas</h2>
+      <p class="ajuda">Se algo entrou errado, dá para desfazer o lançamento inteiro.</p>
+    </div>
+    <div id="lista-historico"></div>
+  </section>
+
+  <!-- ===================== AJUSTES ===================== -->
+  <section id="tela-config" class="tela">
+    <div class="cartao">
+      <h2>Banco do Solus</h2>
+      <label class="campo">
+        <span>Endereço do servidor <em>(localhost se for neste PC)</em></span>
+        <input type="text" id="cfg-host" placeholder="localhost ou 192.168.0.10">
+      </label>
+      <label class="campo">
+        <span>Caminho do banco</span>
+        <input type="text" id="cfg-caminho" placeholder="C:/Solus/Solussis/BANCO/BANCO.FDB">
+      </label>
+      <div class="linha-dupla">
+        <label class="campo"><span>Usuário</span><input type="text" id="cfg-usuario"></label>
+        <label class="campo"><span>Senha</span><input type="password" id="cfg-senha"></label>
+      </div>
+      <button id="btn-testar-banco" class="botao secundario">Testar conexão</button>
+      <div id="resultado-banco" class="resultado-teste"></div>
+    </div>
+
+    <div class="cartao">
+      <h2>IA que lê as fotos (Gemini)</h2>
+      <p class="ajuda">Usada em foto e PDF. Com XML, a IA nem entra.</p>
+      <label class="campo">
+        <span>Chave da API</span>
+        <input type="password" id="cfg-chave-ia" placeholder="cole a chave aqui">
+      </label>
+      <label class="campo">
+        <span>Modelo</span>
+        <select id="cfg-modelo-ia"></select>
+      </label>
+      <button id="btn-testar-ia" class="botao secundario">Testar chave</button>
+      <div id="resultado-ia" class="resultado-teste"></div>
+    </div>
+
+    <div class="cartao">
+      <h2>Dados da loja <em class="ajuda">(saem no PDF do orçamento)</em></h2>
+      <label class="campo"><span>Nome da loja</span><input type="text" id="cfg-loja-nome"></label>
+      <label class="campo"><span>CNPJ</span><input type="text" id="cfg-loja-cnpj"></label>
+      <label class="campo"><span>Endereço</span><input type="text" id="cfg-loja-endereco"></label>
+      <div class="linha-dupla">
+        <label class="campo"><span>Cidade</span><input type="text" id="cfg-loja-cidade"></label>
+        <label class="campo"><span>UF</span><input type="text" id="cfg-loja-uf" maxlength="2"></label>
+      </div>
+      <label class="campo"><span>Telefone</span><input type="text" id="cfg-loja-telefone"></label>
+    </div>
+
+    <div class="cartao">
+      <h2>Regras de preço</h2>
+      <label class="campo">
+        <span>Terminar o preço em <em>(0,90 = R$ 12,90. Use 0 para não arredondar)</em></span>
+        <input type="number" step="0.01" id="cfg-arredondar">
+      </label>
+      <label class="campo">
+        <span>Margem para produto novo (%)</span>
+        <input type="number" step="1" id="cfg-margem-novo">
+      </label>
+      <label class="campo">
+        <span>Avisar quando o custo variar mais que (%)</span>
+        <input type="number" step="1" id="cfg-avisar">
+      </label>
+      <label class="campo">
+        <span>Regime da empresa</span>
+        <select id="cfg-regime">
+          <option value="simples">Simples Nacional (não aproveita crédito de ICMS)</option>
+          <option value="normal">Lucro Presumido/Real (aproveita crédito)</option>
+        </select>
+      </label>
+      <div class="caixinhas">
+        <label><input type="checkbox" id="cfg-frete"> Somar frete e despesas ao custo</label>
+        <label><input type="checkbox" id="cfg-ipi"> Somar IPI ao custo</label>
+        <label><input type="checkbox" id="cfg-st"> Somar ICMS-ST ao custo</label>
+      </div>
+      <button id="btn-salvar-config" class="botao principal largura-total">Salvar ajustes</button>
+      <div id="resultado-config" class="resultado-teste"></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- modal: escolher produto na entrada de nota -->
+<div id="modal-busca" class="modal escondido">
+  <div class="modal-conteudo">
+    <h3>Escolher o produto certo</h3>
+    <input type="text" id="busca-produto" placeholder="Nome, código ou código de barras">
+    <div id="resultado-busca" class="resultado-busca"></div>
+    <button id="btn-fechar-modal" class="botao secundario largura-total">Fechar</button>
+  </div>
+</div>
+
+<!-- modal: procurar produto no orçamento -->
+<div id="modal-produto" class="modal escondido">
+  <div class="modal-conteudo">
+    <h3>Procurar produto</h3>
+    <input type="text" id="procura-produto" placeholder="Nome ou código de barras">
+    <label class="campo">
+      <span>Quantidade <em>(ao adicionar um item novo)</em></span>
+      <input type="number" id="qtd-novo-item" value="1" min="0.01" step="0.01">
+    </label>
+    <div id="resultado-produtos" class="resultado-busca"></div>
+    <button id="btn-fechar-produto" class="botao secundario largura-total">Fechar</button>
+  </div>
+</div>
+
+<script type="module" src="inicio.js"></script>
+</body>
+</html>

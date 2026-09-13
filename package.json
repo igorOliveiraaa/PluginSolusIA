@@ -1,0 +1,19 @@
+{
+  "name": "plugin-ia-solus",
+  "version": "1.0.0",
+  "description": "Plugin de IA para o Solus: entrada de nota, orcamento e cadastro de cliente",
+  "type": "module",
+  "main": "src/servidor.js",
+  "scripts": {
+    "start": "node src/servidor.js",
+    "teste-banco": "node src/ferramentas/testa-banco.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "fast-xml-parser": "^5.11.1",
+    "multer": "^2.3.0",
+    "node-firebird": "^2.16.0",
+    "pdfkit": "^0.20.2",
+    "selfsigned": "^5.5.0"
+  }
+}

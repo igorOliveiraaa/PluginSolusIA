@@ -1,0 +1,251 @@
+// Clientes do Solus: buscar, cadastrar e ver o que o cliente ja comprou.
+//
+// O historico de compra sai de PEDIDOS + ITEMPEDIDO (89 mil pedidos no banco real).
+// E o que permite mostrar "esse cliente ja levou esse item por R$ X em tal data",
+// que e a informacao que falta na hora de montar um orcamento.
+
+import { consultar, emTransacao, paraNumero, paraTextoBR, campoTexto, lerTexto, gravarTexto } from './firebird.js';
+import { colunasDe } from './produtos.js';
+import { formatarCnpj, limparCnpj } from '../leitura/cnpj.js';
+
+const CAMPOS_CLIENTE = `CODIGO, ${campoTexto('NOME', 50)}, ${campoTexto('FANTASIA', 40)},
+  CPFCNPJ, INSCRICAO, ${campoTexto('RUA', 60)}, NUMERO, ${campoTexto('BAIRRO', 70)},
+  ${campoTexto('CIDADE', 30)}, UF, CEP, TELEFONE, CELULAR, EMAIL, TIPO, STATUS, SITUACAO,
+  ${campoTexto('CONTATO', 20)}`;
+
+function montarCliente(linha) {
+  if (!linha) return null;
+  return {
+    codigo: String(linha.CODIGO || '').trim(),
+    nome: lerTexto(linha.NOME),
+    fantasia: lerTexto(linha.FANTASIA),
+    cpfCnpj: String(linha.CPFCNPJ || '').trim(),
+    inscricao: String(linha.INSCRICAO || '').trim(),
+    rua: lerTexto(linha.RUA),
+    numero: String(linha.NUMERO || '').trim(),
+    bairro: lerTexto(linha.BAIRRO),
+    cidade: lerTexto(linha.CIDADE),
+    uf: String(linha.UF || '').trim(),
+    cep: String(linha.CEP || '').trim(),
+    telefone: String(linha.TELEFONE || '').trim(),
+    celular: String(linha.CELULAR || '').trim(),
+    email: String(linha.EMAIL || '').trim(),
+    tipo: String(linha.TIPO || '').trim(),
+    contato: lerTexto(linha.CONTATO),
+    status: String(linha.STATUS || '').trim(),
+    bloqueado: String(linha.STATUS || '').trim().toUpperCase() === 'BLOQUEADO',
+  };
+}
+
+/** Procura cliente por CPF/CNPJ (com ou sem pontuacao). */
+export async function buscarPorDocumento(documento) {
+  const numeros = String(documento || '').replace(/\D/g, '');
+  if (numeros.length < 11) return null;
+
+  const variantes = [numeros, formatarCnpj(numeros)];
+  const linhas = await consultar(
+    `SELECT FIRST 1 ${CAMPOS_CLIENTE} FROM CLIENTES
+      WHERE CPFCNPJ = ? OR CPFCNPJ = ?
+         OR REPLACE(REPLACE(REPLACE(CPFCNPJ, '.', ''), '/', ''), '-', '') = ?`,
+    [...variantes, numeros]
+  );
+  return montarCliente(linhas[0]);
+}
+
+export async function buscarClientePorCodigo(codigo) {
+  const cod = String(codigo || '').trim();
+  if (!cod) return null;
+  const linhas = await consultar(
+    `SELECT FIRST 1 ${CAMPOS_CLIENTE} FROM CLIENTES WHERE TRIM(CODIGO) = ?`,
+    [cod]
+  );
+  return montarCliente(linhas[0]);
+}
+
+/** Procura cliente por parte do nome (para a tela de busca). */
+export async function buscarClientePorNome(termo, limite = 15) {
+  const texto = String(termo || '').trim().toUpperCase();
+  if (texto.length < 2) return [];
+
+  // mesma manha dos produtos: corta a palavra antes do acento
+  const posicaoAcento = texto.search(/[^A-Z0-9 .\-/]/);
+  const procurar = posicaoAcento > 1 ? texto.slice(0, posicaoAcento) : texto;
+
+  const linhas = await consultar(
+    `SELECT FIRST ${limite} ${CAMPOS_CLIENTE} FROM CLIENTES
+      WHERE UPPER(NOME) LIKE ? OR UPPER(FANTASIA) LIKE ?`,
+    [`%${procurar}%`, `%${procurar}%`]
+  );
+  return linhas.map(montarCliente).filter(Boolean);
+}
+
+/** Proximo codigo livre de cliente, do jeito que o Solus controla. */
+async function proximoCodigoCliente(executar = consultar) {
+  let candidato = 1;
+  try {
+    const linhas = await executar('SELECT FIRST 1 CODIGO FROM CODCLIENTE');
+    candidato = paraNumero(linhas[0]?.CODIGO) || 1;
+  } catch { /* banco sem CODCLIENTE: usa o maior codigo em uso */ }
+
+  const maior = await executar(
+    "SELECT MAX(CAST(CODIGO AS INTEGER)) AS MAIOR FROM CLIENTES WHERE CODIGO SIMILAR TO '[0-9]+'"
+  );
+  return String(Math.max(candidato, paraNumero(maior[0]?.MAIOR) + 1));
+}
+
+function hoje() {
+  const d = new Date();
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+}
+
+/**
+ * Cadastra o cliente no Solus com os dados vindos da consulta de CNPJ.
+ * Se ja existir alguem com o mesmo documento, devolve o que existe em vez de
+ * criar duplicado (cadastro repetido de cliente da a mesma dor de cabeca que
+ * produto repetido).
+ */
+export async function cadastrarCliente(dados, operador = '') {
+  const documento = String(dados.cpfCnpj || dados.cnpj || '').trim();
+  const numeros = documento.replace(/\D/g, '');
+
+  const existente = await buscarPorDocumento(numeros);
+  if (existente) {
+    return { cliente: existente, jaExistia: true };
+  }
+
+  const colunas = await colunasDe('CLIENTES');
+
+  return emTransacao(async (executar) => {
+    const codigo = await proximoCodigoCliente(executar);
+
+    const valores = {
+      CODIGO: codigo,
+      NOME: gravarTexto(String(dados.razaoSocial || dados.nome || '').slice(0, 50)),
+      FANTASIA: gravarTexto(String(dados.fantasia || '').slice(0, 40)),
+      CPFCNPJ: numeros.length === 14 ? formatarCnpj(numeros) : documento.slice(0, 20),
+      INSCRICAO: String(dados.inscricaoEstadual || dados.inscricao || '').slice(0, 20),
+      RUA: gravarTexto(String(dados.rua || '').slice(0, 60)),
+      NUMERO: String(dados.numero || '').slice(0, 8),
+      BAIRRO: gravarTexto(String(dados.bairro || '').slice(0, 70)),
+      CIDADE: gravarTexto(String(dados.cidade || '').slice(0, 30)),
+      UF: String(dados.uf || '').slice(0, 2).toUpperCase(),
+      CEP: String(dados.cep || '').slice(0, 20),
+      TELEFONE: String(dados.telefone || '').slice(0, 15),
+      CELULAR: String(dados.celular || '').slice(0, 15),
+      EMAIL: String(dados.email || '').slice(0, 60),
+      CONTATO: gravarTexto(String(dados.contato || '').slice(0, 20)),
+      TIPO: numeros.length === 14 ? 'JURIDICA' : 'FISICA',
+      DTABERTURA: hoje(),
+      USUABERTURA: String(operador || '').slice(0, 20),
+    };
+
+    const campos = [];
+    const marcadores = [];
+    const params = [];
+    for (const [campo, valor] of Object.entries(valores)) {
+      if (valor === undefined || !colunas.has(campo)) continue;
+      campos.push(campo);
+      marcadores.push('?');
+      params.push(valor);
+    }
+
+    await executar(
+      `INSERT INTO CLIENTES (${campos.join(', ')}) VALUES (${marcadores.join(', ')})`,
+      params
+    );
+
+    try {
+      await executar('UPDATE CODCLIENTE SET CODIGO = ?', [String(paraNumero(codigo) + 1)]);
+    } catch { /* banco sem CODCLIENTE */ }
+
+    return {
+      jaExistia: false,
+      cliente: {
+        codigo,
+        nome: String(dados.razaoSocial || dados.nome || ''),
+        fantasia: String(dados.fantasia || ''),
+        cpfCnpj: valores.CPFCNPJ,
+        cidade: String(dados.cidade || ''),
+        uf: valores.UF,
+      },
+    };
+  });
+}
+
+/** Ultimas compras do cliente (para a tela do orcamento). */
+export async function ultimasCompras(codigoCliente, limite = 40) {
+  const cod = String(codigoCliente || '').trim();
+  if (!cod) return [];
+
+  const linhas = await consultar(
+    `SELECT FIRST ${limite}
+            I.PRODUTO, ${campoTexto('I.DESCRICAO', 70, 'DESCRICAO')}, I.QTD, I.PRECO, I.DATA, P.NUMERO
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE TRIM(P.CODCLIENTE) = ?
+        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
+        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+      ORDER BY I.DATA DESC`,
+    [cod]
+  );
+
+  return linhas.map((l) => ({
+    produto: String(l.PRODUTO || '').trim(),
+    descricao: lerTexto(l.DESCRICAO),
+    quantidade: paraNumero(l.QTD),
+    preco: paraNumero(l.PRECO),
+    data: l.DATA,
+    pedido: Number(l.NUMERO),
+  }));
+}
+
+/**
+ * Ultimo preco que ESTE cliente pagou em UM produto.
+ * `chaveProduto` e o que o Solus guarda em ITEMPEDIDO.PRODUTO: normalmente o
+ * codigo de barras, e para produto sem barras o proprio codigo.
+ */
+export async function ultimoPrecoDoCliente(codigoCliente, chaveProduto) {
+  const cod = String(codigoCliente || '').trim();
+  const chave = String(chaveProduto || '').trim();
+  if (!cod || !chave) return null;
+
+  const linhas = await consultar(
+    `SELECT FIRST 1 I.PRECO, I.QTD, I.DATA
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE TRIM(P.CODCLIENTE) = ? AND TRIM(I.PRODUTO) = ?
+        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
+        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+      ORDER BY I.DATA DESC`,
+    [cod, chave]
+  );
+
+  if (!linhas.length) return null;
+  return {
+    preco: paraNumero(linhas[0].PRECO),
+    quantidade: paraNumero(linhas[0].QTD),
+    data: linhas[0].DATA,
+  };
+}
+
+/** Ultimo preco praticado na loja para o produto, para qualquer cliente. */
+export async function ultimoPrecoDaLoja(chaveProduto) {
+  const chave = String(chaveProduto || '').trim();
+  if (!chave) return null;
+
+  const linhas = await consultar(
+    `SELECT FIRST 1 I.PRECO, I.DATA
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE TRIM(I.PRODUTO) = ?
+        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
+        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+      ORDER BY I.DATA DESC`,
+    [chave]
+  );
+
+  if (!linhas.length) return null;
+  return { preco: paraNumero(linhas[0].PRECO), data: linhas[0].DATA };
+}
+
+export { paraTextoBR };

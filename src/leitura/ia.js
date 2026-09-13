@@ -1,0 +1,412 @@
+// Leitura da nota por IA (Google Gemini), para quando NAO existe o XML:
+// foto tirada no celular, DANFE em PDF, print, etc.
+//
+// Importante: o XML sempre vem primeiro. A IA so entra quando nao tem XML,
+// porque leitura de imagem sempre tem chance de erro e por isso tudo o que
+// vem daqui passa pela tela de conferencia antes de gravar.
+
+import { carregarConfig } from '../config.js';
+
+const ENDERECO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// Formato que pedimos de volta. Deixar o formato travado reduz muito o erro.
+const FORMATO_RESPOSTA = {
+  type: 'object',
+  properties: {
+    numeroNota: { type: 'string' },
+    serie: { type: 'string' },
+    chaveAcesso: { type: 'string' },
+    dataEmissao: { type: 'string' },
+    fornecedorNome: { type: 'string' },
+    fornecedorCnpj: { type: 'string' },
+    totalNota: { type: 'number' },
+    totalProdutos: { type: 'number' },
+    totalFrete: { type: 'number' },
+    totalIPI: { type: 'number' },
+    totalICMSST: { type: 'number' },
+    observacoesDaNota: { type: 'string' },
+    itens: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          numero: { type: 'integer' },
+          descricao: { type: 'string' },
+          codigoBarras: { type: 'string' },
+          codigoFornecedor: { type: 'string' },
+          ncm: { type: 'string' },
+          unidade: { type: 'string' },
+          quantidade: { type: 'number' },
+          valorUnitario: { type: 'number' },
+          valorTotal: { type: 'number' },
+          desconto: { type: 'number' },
+          valorIPI: { type: 'number' },
+          valorICMSST: { type: 'number' },
+          ehCaixa: { type: 'boolean' },
+          unidadesPorCaixa: { type: 'integer' },
+          confianca: { type: 'string' },
+          observacao: { type: 'string' },
+        },
+        required: ['descricao', 'quantidade', 'valorUnitario'],
+      },
+    },
+  },
+  required: ['itens'],
+};
+
+function montarInstrucoes(observacaoDoUsuario) {
+  const base = `Voce esta lendo uma NOTA FISCAL DE ENTRADA (compra de mercadoria) de uma loja no Brasil.
+Extraia os dados EXATAMENTE como estao no documento. Nao invente nada.
+
+REGRAS IMPORTANTES:
+
+1) QUANTIDADE E UNIDADE - este e o ponto mais critico.
+   Se o item estiver em CAIXA, FARDO, PACOTE, DISPLAY (unidades CX, FD, PCT, DP, CJ):
+   - marque ehCaixa = true
+   - em "quantidade" coloque a quantidade COMO ESTA NA NOTA (ex.: 2 caixas = 2)
+   - em "valorUnitario" coloque o valor POR CAIXA, como esta na nota
+   - em "unidadesPorCaixa" coloque quantas unidades vem dentro, SE o documento disser
+     (procure na descricao coisas como "C/12", "CX C/ 24", "12X500ML", "FD 6").
+     Se o documento NAO disser, coloque 0. NAO CHUTE.
+   Se o item ja estiver em unidade (UN, PC, KG, LT), ehCaixa = false e unidadesPorCaixa = 0.
+
+2) VALORES: use ponto como separador decimal (ex.: 12.50). Nunca use virgula.
+   Se um valor nao existir na nota, coloque 0.
+
+3) CODIGO DE BARRAS: so preencha se estiver escrito no documento (EAN de 8, 12, 13 ou 14
+   digitos). Se nao houver, deixe vazio. Nao confunda com o codigo interno do fornecedor,
+   que vai em "codigoFornecedor".
+
+4) CONFIANCA: em cada item, coloque "alta" se leu com clareza, "media" se teve alguma
+   duvida, "baixa" se o documento estava borrado/cortado naquele item. Se ficou em duvida,
+   explique em "observacao" o que estava dificil de ler.
+
+5) Se a foto estiver cortada e faltar itens, diga isso em "observacoesDaNota".`;
+
+  if (!observacaoDoUsuario || !observacaoDoUsuario.trim()) return base;
+
+  return `${base}
+
+OBSERVACAO DE QUEM ENVIOU A NOTA (leve isso em conta na leitura):
+"""
+${observacaoDoUsuario.trim()}
+"""`;
+}
+
+/**
+ * Manda o arquivo para a IA e devolve a nota estruturada.
+ * `arquivos` e uma lista de { base64, tipo } - da para mandar varias fotos
+ * da mesma nota (frente/verso, ou nota que ocupa mais de uma pagina).
+ */
+export async function lerDocumentoComIA(arquivos, observacao = '') {
+  const cfg = carregarConfig();
+  const chave = cfg.ia?.chave?.trim();
+  if (!chave) {
+    throw new Error('Falta configurar a chave da IA (Gemini) na tela de Configuracao.');
+  }
+
+  const modelo = cfg.ia?.modelo || 'gemini-2.5-flash';
+  const partes = [{ text: montarInstrucoes(observacao) }];
+  for (const arquivo of arquivos) {
+    partes.push({ inline_data: { mime_type: arquivo.tipo, data: arquivo.base64 } });
+  }
+
+  const resposta = await fetch(
+    `${ENDERECO_BASE}/models/${encodeURIComponent(modelo)}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
+      body: JSON.stringify({
+        contents: [{ parts: partes }],
+        generationConfig: {
+          temperature: 0,               // leitura de documento nao pode ser "criativa"
+          responseMimeType: 'application/json',
+          responseSchema: FORMATO_RESPOSTA,
+        },
+      }),
+    }
+  );
+
+  if (!resposta.ok) {
+    throw new Error(await traduzErroDaIA(resposta));
+  }
+
+  const dados = await resposta.json();
+  const texto = dados?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+  if (!texto.trim()) {
+    const motivo = dados?.candidates?.[0]?.finishReason || 'sem resposta';
+    throw new Error(`A IA nao conseguiu ler o documento (${motivo}). Tente uma foto mais nitida.`);
+  }
+
+  let bruto;
+  try {
+    bruto = JSON.parse(texto);
+  } catch {
+    throw new Error('A IA respondeu num formato inesperado. Tente novamente.');
+  }
+
+  return converterParaNota(bruto, modelo);
+}
+
+async function traduzErroDaIA(resposta) {
+  let detalhe = '';
+  try {
+    const corpo = await resposta.json();
+    detalhe = corpo?.error?.message || '';
+  } catch { /* resposta sem corpo JSON */ }
+
+  if (resposta.status === 400 && /API key/i.test(detalhe)) {
+    return 'A chave da IA parece invalida. Confira na tela de Configuracao.';
+  }
+  if (resposta.status === 429) {
+    return 'A IA atingiu o limite de uso do plano gratuito agora ha pouco. Espere um minuto e tente de novo.';
+  }
+  if (resposta.status === 503) {
+    return 'O servico da IA esta sobrecarregado no momento. Tente novamente em instantes.';
+  }
+  return `A IA nao respondeu (erro ${resposta.status}). ${detalhe}`.trim();
+}
+
+/** Coloca a resposta da IA no mesmo formato que sai do XML. */
+function converterParaNota(bruto, modelo) {
+  const itens = (bruto.itens || []).map((item, indice) => {
+    const quantidade = Number(item.quantidade) || 0;
+    const valorUnitario = Number(item.valorUnitario) || 0;
+    const porCaixa = Number(item.unidadesPorCaixa) || 0;
+    const ehCaixa = Boolean(item.ehCaixa);
+
+    // mesma conversao que o XML faz: transformar caixa em unidade
+    const converteu = ehCaixa && porCaixa > 1;
+    const quantidadeUnidades = converteu ? quantidade * porCaixa : quantidade;
+    const custoUnitario = converteu ? valorUnitario / porCaixa : valorUnitario;
+
+    let explicacao = '';
+    let confianca = item.confianca || 'media';
+    if (ehCaixa && porCaixa > 1) {
+      explicacao = `A nota veio em ${item.unidade || 'caixa'} e o documento indica ${porCaixa} unidades por caixa. Confira.`;
+      confianca = 'media';
+    } else if (ehCaixa) {
+      explicacao = `A nota veio em ${item.unidade || 'caixa'} mas nao da para saber quantas unidades tem dentro. Informe a quantidade.`;
+      confianca = 'baixa';
+    }
+
+    return {
+      numero: Number(item.numero) || indice + 1,
+      descricao: String(item.descricao || '').trim(),
+      codigoFornecedor: String(item.codigoFornecedor || '').trim(),
+      codigoBarras: String(item.codigoBarras || '').replace(/\D/g, ''),
+      ncm: String(item.ncm || '').replace(/\D/g, ''),
+      cest: '',
+      cfop: '',
+
+      unidadeComercial: String(item.unidade || '').trim(),
+      quantidadeComercial: quantidade,
+      valorUnitarioComercial: valorUnitario,
+      unidadeTributavel: '',
+      quantidadeTributavel: 0,
+      valorUnitarioTributavel: 0,
+      valorProduto: Number(item.valorTotal) || quantidade * valorUnitario,
+      desconto: Number(item.desconto) || 0,
+      frete: 0,
+      seguro: 0,
+      outrasDespesas: 0,
+
+      valorIPI: Number(item.valorIPI) || 0,
+      valorICMS: 0,
+      aliquotaICMS: 0,
+      valorICMSST: Number(item.valorICMSST) || 0,
+      valorFCPST: 0,
+      cst: '',
+
+      quantidadeUnidades,
+      custoUnitario,
+      unidadesPorCaixa: porCaixa,
+      unidadeOriginal: String(item.unidade || 'UN').trim(),
+      convertido: converteu,
+      confianca,
+      explicacao,
+      observacaoIA: String(item.observacao || '').trim(),
+    };
+  });
+
+  return {
+    origem: 'ia',
+    modeloUsado: modelo,
+    chave: String(bruto.chaveAcesso || '').replace(/\D/g, ''),
+    numero: String(bruto.numeroNota || '').trim(),
+    serie: String(bruto.serie || '').trim(),
+    emissao: String(bruto.dataEmissao || '').trim(),
+    fornecedor: {
+      cnpj: String(bruto.fornecedorCnpj || '').replace(/\D/g, ''),
+      nome: String(bruto.fornecedorNome || '').trim(),
+      fantasia: '',
+      uf: '',
+    },
+    destinatario: { cnpj: '', nome: '' },
+    totais: {
+      produtos: Number(bruto.totalProdutos) || 0,
+      nota: Number(bruto.totalNota) || 0,
+      frete: Number(bruto.totalFrete) || 0,
+      seguro: 0,
+      outras: 0,
+      desconto: 0,
+      ipi: Number(bruto.totalIPI) || 0,
+      icmsST: Number(bruto.totalICMSST) || 0,
+      fcpST: 0,
+    },
+    observacoesDaNota: String(bruto.observacoesDaNota || '').trim(),
+    itens,
+  };
+}
+
+/** Lista os modelos disponiveis para a chave configurada (usado na tela de config). */
+export async function listarModelos() {
+  const cfg = carregarConfig();
+  const chave = cfg.ia?.chave?.trim();
+  if (!chave) throw new Error('Configure a chave da IA primeiro.');
+
+  const resposta = await fetch(`${ENDERECO_BASE}/models`, {
+    headers: { 'x-goog-api-key': chave },
+  });
+  if (!resposta.ok) throw new Error(await traduzErroDaIA(resposta));
+
+  const dados = await resposta.json();
+  return (dados.models || [])
+    .filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'))
+    .map((m) => String(m.name || '').replace('models/', ''))
+    .filter((nome) => nome.startsWith('gemini'));
+}
+
+/** Testa se a chave funciona, sem gastar leitura de documento. */
+export async function testarChave() {
+  const modelos = await listarModelos();
+  return { ok: true, modelosDisponiveis: modelos.length, exemplos: modelos.slice(0, 6) };
+}
+
+// ---------------------------------------------------------------------------
+// Leitura de LISTA DE COMPRAS do cliente (para montar orcamento)
+// ---------------------------------------------------------------------------
+
+const FORMATO_LISTA = {
+  type: 'object',
+  properties: {
+    clienteCitado: { type: 'string' },
+    observacoes: { type: 'string' },
+    itens: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          textoOriginal: { type: 'string' },
+          descricao: { type: 'string' },
+          quantidade: { type: 'number' },
+          unidade: { type: 'string' },
+          marca: { type: 'string' },
+          tamanho: { type: 'string' },
+          observacao: { type: 'string' },
+          confianca: { type: 'string' },
+        },
+        required: ['descricao', 'quantidade'],
+      },
+    },
+  },
+  required: ['itens'],
+};
+
+const INSTRUCOES_LISTA = `Voce esta lendo um PEDIDO DE CLIENTE de uma loja no Brasil.
+Pode ser uma lista escrita a mao, um print de conversa de WhatsApp, uma foto de papel,
+uma planilha ou um texto digitado.
+
+Sua tarefa e transformar isso numa lista de itens. REGRAS:
+
+1) Copie em "textoOriginal" exatamente como o item aparece escrito, sem corrigir nada.
+   Em "descricao" coloque a sua melhor leitura do que o cliente quer, ja em letras
+   normais (ex.: "copo d agua" -> "copo de agua").
+
+2) QUANTIDADE: se nao estiver escrita, coloque 1 e avise em "observacao" que a
+   quantidade nao estava na lista. Nunca invente quantidade.
+
+3) NAO TENTE ADIVINHAR o produto exato do catalogo da loja. Isso quem faz e o sistema.
+   Separe o que voce conseguir: "marca" (ex.: Ype, Bombril), "tamanho" (ex.: 5L, 500ml,
+   tamanho M) e "unidade" (ex.: caixa, pacote, duzia, kg) em campos separados.
+
+4) CONFIANCA por item: "alta" se esta claro, "media" se a letra esta ruim mas da para
+   entender, "baixa" se voce nao tem certeza do que esta escrito. Quando for baixa,
+   escreva em "observacao" o que voce acha que pode ser.
+
+5) Se aparecer o nome do cliente ou da empresa no documento, coloque em "clienteCitado".
+
+6) Nao invente itens. Se algo estiver ilegivel, coloque em "observacoes" em vez de
+   inventar uma linha.`;
+
+/**
+ * Le a lista de compras do cliente (foto, PDF ou texto digitado).
+ * Devolve os itens "crus" - quem procura no estoque e o modulo de orcamento.
+ */
+export async function lerListaDeCompras(arquivos = [], textoDigitado = '', observacao = '') {
+  const cfg = carregarConfig();
+  const chave = cfg.ia?.chave?.trim();
+  if (!chave) throw new Error('Falta configurar a chave da IA (Gemini) na tela de Ajustes.');
+
+  const modelo = cfg.ia?.modelo || 'gemini-2.5-flash';
+
+  let instrucoes = INSTRUCOES_LISTA;
+  if (observacao?.trim()) {
+    instrucoes += `\n\nOBSERVACAO DE QUEM ENVIOU:\n"""\n${observacao.trim()}\n"""`;
+  }
+  if (textoDigitado?.trim()) {
+    instrucoes += `\n\nLISTA DIGITADA:\n"""\n${textoDigitado.trim()}\n"""`;
+  }
+
+  const partes = [{ text: instrucoes }];
+  for (const arquivo of arquivos) {
+    partes.push({ inline_data: { mime_type: arquivo.tipo, data: arquivo.base64 } });
+  }
+
+  const resposta = await fetch(
+    `${ENDERECO_BASE}/models/${encodeURIComponent(modelo)}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
+      body: JSON.stringify({
+        contents: [{ parts: partes }],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: 'application/json',
+          responseSchema: FORMATO_LISTA,
+        },
+      }),
+    }
+  );
+
+  if (!resposta.ok) throw new Error(await traduzErroDaIA(resposta));
+
+  const dados = await resposta.json();
+  const texto = dados?.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+  if (!texto.trim()) {
+    throw new Error('A IA nao conseguiu ler a lista. Tente uma foto mais nitida.');
+  }
+
+  let bruto;
+  try {
+    bruto = JSON.parse(texto);
+  } catch {
+    throw new Error('A IA respondeu num formato inesperado. Tente novamente.');
+  }
+
+  return {
+    clienteCitado: String(bruto.clienteCitado || '').trim(),
+    observacoes: String(bruto.observacoes || '').trim(),
+    itens: (bruto.itens || []).map((item, indice) => ({
+      numero: indice + 1,
+      textoOriginal: String(item.textoOriginal || item.descricao || '').trim(),
+      descricao: String(item.descricao || '').trim(),
+      quantidade: Number(item.quantidade) > 0 ? Number(item.quantidade) : 1,
+      unidade: String(item.unidade || '').trim(),
+      marca: String(item.marca || '').trim(),
+      tamanho: String(item.tamanho || '').trim(),
+      observacao: String(item.observacao || '').trim(),
+      confianca: String(item.confianca || 'media').trim(),
+    })),
+  };
+}
