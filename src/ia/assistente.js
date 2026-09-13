@@ -1,0 +1,328 @@
+// O assistente que conversa sobre a loja.
+//
+// Como funciona: a IA NAO responde de cabeca. Ela escolhe uma das ferramentas
+// abaixo, a ferramenta consulta o banco do Solus, e so entao a IA escreve a
+// resposta com os numeros que voltaram. Assim ela nao inventa dado.
+//
+// Todas as ferramentas sao de LEITURA. O assistente nao altera nada na loja.
+
+import { carregarConfig } from '../config.js';
+import * as consultas from './consultas.js';
+import { consultaLivre, MAPA_DO_BANCO } from './sql-seguro.js';
+
+const ENDERECO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const MAX_RODADAS = 6;        // quantas consultas seguidas ela pode fazer numa pergunta
+
+// ---------------------------------------------------------------------------
+// As ferramentas que a IA pode usar
+// ---------------------------------------------------------------------------
+
+const texto = (descricao) => ({ type: 'string', description: descricao });
+const numero = (descricao) => ({ type: 'integer', description: descricao });
+
+const FERRAMENTAS = [
+  {
+    name: 'procurar_produto',
+    description: 'Procura produtos pelo nome, codigo ou codigo de barras. Devolve estoque, preco de venda, custo e margem.',
+    parameters: {
+      type: 'object',
+      properties: { termo: texto('nome, codigo ou codigo de barras'), quantos: numero('quantos trazer (ate 50)') },
+      required: ['termo'],
+    },
+    executar: consultas.procurarProduto,
+  },
+  {
+    name: 'ultimas_vendas_do_produto',
+    description: 'Ultimas vendas de um produto: para qual cliente, quando, quanto e por qual preco. Use para "para quem vendemos isso", "quando foi a ultima venda".',
+    parameters: {
+      type: 'object',
+      properties: { termo: texto('nome ou codigo do produto'), quantos: numero('quantas vendas') },
+      required: ['termo'],
+    },
+    executar: consultas.ultimasVendasDoProduto,
+  },
+  {
+    name: 'ultimas_compras_do_produto',
+    description: 'Ultimas compras do produto no fornecedor: de quem a loja comprou, quando e por quanto.',
+    parameters: {
+      type: 'object',
+      properties: { termo: texto('nome ou codigo do produto'), quantos: numero('quantas compras') },
+      required: ['termo'],
+    },
+    executar: consultas.ultimasComprasDoProduto,
+  },
+  {
+    name: 'historico_de_preco',
+    description: 'Como o preco de venda do produto mudou ao longo do tempo: data, quem alterou, preco antes e depois.',
+    parameters: {
+      type: 'object',
+      properties: { termo: texto('nome ou codigo do produto'), quantos: numero('quantas alteracoes') },
+      required: ['termo'],
+    },
+    executar: consultas.historicoDePreco,
+  },
+  {
+    name: 'ultima_venda_para_cliente',
+    description: 'Quando um cliente especifico levou um produto especifico e por quanto pagou. Use para "quanto o fulano pagou nisso da ultima vez".',
+    parameters: {
+      type: 'object',
+      properties: {
+        termo: texto('nome ou codigo do produto'),
+        cliente: texto('nome ou codigo do cliente'),
+        quantos: numero('quantas vezes listar'),
+      },
+      required: ['termo', 'cliente'],
+    },
+    executar: consultas.ultimaVendaParaCliente,
+  },
+  {
+    name: 'compras_do_cliente',
+    description: 'O que um cliente comprou, com data, quantidade e preco pago.',
+    parameters: {
+      type: 'object',
+      properties: { cliente: texto('nome ou codigo do cliente'), quantos: numero('quantos itens') },
+      required: ['cliente'],
+    },
+    executar: consultas.comprasDoCliente,
+  },
+  {
+    name: 'desde_quando_tem_o_produto',
+    description: 'Desde quando a loja trabalha com o produto (primeira compra e primeira venda registradas).',
+    parameters: {
+      type: 'object',
+      properties: { termo: texto('nome ou codigo do produto') },
+      required: ['termo'],
+    },
+    executar: consultas.desdeQuandoTemOProduto,
+  },
+  {
+    name: 'produtos_com_estoque_ruim',
+    description: 'Produtos zerados ou com estoque negativo. Estoque negativo indica erro de lancamento.',
+    parameters: {
+      type: 'object',
+      properties: {
+        quantos: numero('quantos listar'),
+        apenasNegativo: { type: 'boolean', description: 'true = so os negativos' },
+      },
+    },
+    executar: consultas.produtosComEstoqueRuim,
+  },
+  {
+    name: 'mais_vendidos',
+    description: 'Produtos que mais venderam num periodo, por quantidade e valor.',
+    parameters: {
+      type: 'object',
+      properties: { dias: numero('periodo em dias'), quantos: numero('quantos listar') },
+    },
+    executar: consultas.maisVendidos,
+  },
+  {
+    name: 'melhores_clientes',
+    description: 'Clientes que mais compraram num periodo.',
+    parameters: {
+      type: 'object',
+      properties: { dias: numero('periodo em dias'), quantos: numero('quantos listar') },
+    },
+    executar: consultas.melhoresClientes,
+  },
+  {
+    name: 'produtos_parados',
+    description: 'Produtos que tem estoque mas nao vendem ha muito tempo (dinheiro parado na prateleira).',
+    parameters: {
+      type: 'object',
+      properties: { dias: numero('sem vender ha quantos dias'), quantos: numero('quantos listar') },
+    },
+    executar: consultas.produtosParados,
+  },
+  {
+    name: 'produtos_repetidos',
+    description: 'Produtos cadastrados mais de uma vez com o mesmo nome.',
+    parameters: { type: 'object', properties: { quantos: numero('quantos listar') } },
+    executar: consultas.produtosRepetidos,
+  },
+  {
+    name: 'resumo_da_loja',
+    description: 'Numeros gerais: quantos produtos, clientes, fornecedores, vendas dos ultimos 30 dias.',
+    parameters: { type: 'object', properties: {} },
+    executar: consultas.resumoDaLoja,
+  },
+  {
+    name: 'consulta_livre',
+    description: 'Para perguntas que as outras ferramentas nao respondem. Monte uma consulta SQL de LEITURA (SELECT) no banco Firebird do Solus. So use quando nenhuma outra ferramenta servir.',
+    parameters: {
+      type: 'object',
+      properties: {
+        sql: texto('a consulta SELECT, seguindo o mapa do banco'),
+        explicacao: texto('em uma frase, o que essa consulta busca'),
+      },
+      required: ['sql'],
+    },
+    executar: consultaLivre,
+  },
+];
+
+const PELO_NOME = new Map(FERRAMENTAS.map((f) => [f.name, f]));
+
+// formato que o Gemini espera (sem o campo "executar", que e so nosso)
+const DECLARACOES = FERRAMENTAS.map(({ name, description, parameters }) => ({
+  name, description, parameters,
+}));
+
+// ---------------------------------------------------------------------------
+
+function instrucoes(operador) {
+  return `Voce e o assistente do Plugin IA Solus, dentro de uma loja de material de
+limpeza e utilidades no interior de Sao Paulo. Quem esta falando com voce e
+${operador?.nome || 'um funcionario da loja'}.
+
+COMO VOCE TRABALHA:
+- Voce NUNCA responde numero de cabeca. Sempre use uma ferramenta para buscar no
+  sistema e responda com o que voltou.
+- Se a pergunta for ambigua (ex.: existem varios produtos com nome parecido),
+  mostre as opcoes e pergunte qual e, em vez de escolher sozinho.
+- Se a ferramenta nao achar nada, diga isso com todas as letras. Nunca invente.
+- Pode usar varias ferramentas seguidas para responder uma pergunta so.
+
+COMO VOCE ESCREVE:
+- Em portugues do Brasil, simples e direto, como quem trabalha no balcao.
+  Quem le nao e tecnico: nada de jargao de banco de dados.
+- Valores em reais no formato R$ 12,90. Datas como 05/09/2025.
+- Resposta curta. Se forem varios itens, use lista ou tabela em markdown.
+- Seja simpatico e leve, mas sem enrolacao: primeiro a resposta, depois o detalhe.
+- Quando notar algo que merece atencao (estoque negativo, produto parado,
+  margem baixa, preco abaixo do custo), comente em uma linha no fim.
+
+SOBRE O DINHEIRO DA LOJA:
+${operador?.permissoes?.verCusto
+    ? '- Esse usuario PODE ver custo e margem.'
+    : '- Esse usuario NAO pode ver custo nem margem. Nao mostre custo, margem nem lucro. Se perguntarem, diga que o usuario dele nao tem essa permissao no Solus.'}
+
+MAPA DO BANCO (para a ferramenta consulta_livre):
+${MAPA_DO_BANCO}
+
+Hoje e ${new Date().toLocaleDateString('pt-BR')}.`;
+}
+
+/** Chama o Gemini. */
+async function chamarIA({ conteudos, chave, modelo, operador }) {
+  const resposta = await fetch(
+    `${ENDERECO_BASE}/models/${encodeURIComponent(modelo)}:generateContent`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: instrucoes(operador) }] },
+        contents: conteudos,
+        tools: [{ functionDeclarations: DECLARACOES }],
+        generationConfig: { temperature: 0.2 },
+      }),
+    }
+  );
+
+  if (!resposta.ok) {
+    let detalhe = '';
+    try { detalhe = (await resposta.json())?.error?.message || ''; } catch { /* sem corpo */ }
+    if (resposta.status === 429) {
+      throw new Error('A IA atingiu o limite de uso agora ha pouco. Espere um minuto e pergunte de novo.');
+    }
+    if (resposta.status === 400 && /API key/i.test(detalhe)) {
+      throw new Error('A chave da IA parece invalida. Confira na aba Ajustes.');
+    }
+    throw new Error(`A IA nao respondeu (erro ${resposta.status}). ${detalhe}`.trim());
+  }
+
+  return resposta.json();
+}
+
+/**
+ * Responde uma pergunta.
+ * `historico` e a conversa anterior, para ela entender "e do mes passado?".
+ * Devolve tambem os dados crus das consultas, para virar planilha ou PDF depois.
+ */
+export async function perguntar({ pergunta, historico = [], operador }) {
+  const cfg = carregarConfig();
+  const chave = cfg.ia?.chave?.trim();
+  if (!chave) throw new Error('Falta configurar a chave da IA (Gemini) na aba Ajustes.');
+
+  const modelo = cfg.ia?.modelo || 'gemini-2.5-flash';
+
+  const conteudos = [
+    ...historico.map((m) => ({ role: m.papel === 'ia' ? 'model' : 'user', parts: [{ text: m.texto }] })),
+    { role: 'user', parts: [{ text: String(pergunta) }] },
+  ];
+
+  const consultasFeitas = [];
+
+  for (let rodada = 0; rodada < MAX_RODADAS; rodada += 1) {
+    const dados = await chamarIA({ conteudos, chave, modelo, operador });
+    const partes = dados?.candidates?.[0]?.content?.parts || [];
+
+    const chamadas = partes.filter((p) => p.functionCall).map((p) => p.functionCall);
+
+    // sem chamada de ferramenta = e a resposta final
+    if (!chamadas.length) {
+      const resposta = partes.map((p) => p.text).filter(Boolean).join('\n').trim();
+      return {
+        resposta: resposta || 'Nao consegui montar uma resposta para isso.',
+        consultas: consultasFeitas,
+        dadosParaExportar: escolherDadosParaExportar(consultasFeitas),
+      };
+    }
+
+    // roda as ferramentas pedidas
+    conteudos.push({ role: 'model', parts: chamadas.map((c) => ({ functionCall: c })) });
+
+    const respostasDasFerramentas = [];
+    for (const chamada of chamadas) {
+      const ferramenta = PELO_NOME.get(chamada.name);
+      let resultado;
+
+      if (!ferramenta) {
+        resultado = { erro: `Ferramenta ${chamada.name} nao existe.` };
+      } else {
+        try {
+          resultado = await ferramenta.executar(chamada.args || {});
+        } catch (erro) {
+          resultado = { erro: erro.message };
+        }
+      }
+
+      consultasFeitas.push({ ferramenta: chamada.name, argumentos: chamada.args || {}, resultado });
+      respostasDasFerramentas.push({
+        functionResponse: { name: chamada.name, response: { resultado } },
+      });
+    }
+
+    conteudos.push({ role: 'user', parts: respostasDasFerramentas });
+  }
+
+  return {
+    resposta: 'Essa pergunta ficou complicada demais e precisei parar no meio. Tente perguntar de um jeito mais direto.',
+    consultas: consultasFeitas,
+    dadosParaExportar: escolherDadosParaExportar(consultasFeitas),
+  };
+}
+
+/**
+ * Escolhe, entre tudo que foi consultado, a lista mais "cheia" - e ela que vira
+ * a planilha ou o PDF quando a pessoa clica em exportar.
+ */
+function escolherDadosParaExportar(consultasFeitas) {
+  let melhor = null;
+
+  for (const consulta of consultasFeitas) {
+    const resultado = consulta.resultado || {};
+    // procura o primeiro campo que seja uma lista de objetos
+    for (const [campo, valor] of Object.entries(resultado)) {
+      if (!Array.isArray(valor) || !valor.length) continue;
+      if (typeof valor[0] !== 'object') continue;
+      if (!melhor || valor.length > melhor.linhas.length) {
+        melhor = { origem: consulta.ferramenta, campo, linhas: valor };
+      }
+    }
+  }
+
+  return melhor;
+}
+
+export { FERRAMENTAS };

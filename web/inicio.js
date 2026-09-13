@@ -2,7 +2,9 @@
 
 import { $, $$, mostrarTela } from './comum.js';
 import { conferirSessao, mostrarQuemEntrou } from './login.js';
+import { aplicarIcones } from './icones.js';
 import './orcamento.js';
+import './assistente.js';
 import { iniciarTelaDeNota } from './app.js';
 
 // navegacao das abas
@@ -14,6 +16,7 @@ $$('.aba').forEach((aba) => {
   });
 });
 
+aplicarIcones();
 mostrarQuemEntrou();
 iniciarTelaDeNota();
 
@@ -21,7 +24,7 @@ iniciarTelaDeNota();
 conferirSessao();
 
 document.addEventListener('entrou', () => {
-  mostrarTela('enviar');
+  mostrarTela('assistente');
 });
 
 if ('serviceWorker' in navigator) {

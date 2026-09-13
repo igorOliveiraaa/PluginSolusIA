@@ -15,7 +15,7 @@
 <section id="tela-login" class="tela-login escondido">
   <div class="caixa-login">
     <div class="login-marca">
-      <div class="login-icone">📋</div>
+      <div class="login-icone" data-icone="ia" data-icone-tamanho="40"></div>
       <h1>Plugin IA Solus</h1>
       <p class="ajuda">Entre com o mesmo usuário e senha do Solus</p>
     </div>
@@ -46,7 +46,8 @@
     </span>
   </div>
   <nav class="abas">
-    <button class="aba ativa" data-tela="enviar">Nota</button>
+    <button class="aba ativa" data-tela="assistente">Perguntar</button>
+    <button class="aba" data-tela="enviar">Nota</button>
     <button class="aba" data-tela="orcamento">Orçamento</button>
     <button class="aba" data-tela="cliente">Cliente</button>
     <button class="aba" data-tela="historico">Histórico</button>
@@ -56,8 +57,30 @@
 
 <main>
 
+  <!-- ===================== ASSISTENTE ===================== -->
+  <section id="tela-assistente" class="tela ativa">
+    <div id="conversa" class="conversa"></div>
+
+    <div id="exportacao" class="exportacao escondido">
+      <span class="ajuda" style="margin:0">
+        Resultado com <strong id="linhas-exportar"></strong>
+      </span>
+      <div class="exportacao-botoes">
+        <button class="botao secundario" id="btn-planilha" data-icone="planilha"><span>Planilha</span></button>
+        <button class="botao secundario" id="btn-pdf-resultado" data-icone="pdf"><span>PDF</span></button>
+      </div>
+    </div>
+
+    <div class="caixa-pergunta">
+      <textarea id="pergunta" rows="1"
+        placeholder="Pergunte qualquer coisa sobre a loja..."></textarea>
+      <button id="btn-perguntar" class="botao principal" title="Perguntar" aria-label="Perguntar" data-icone="enviar"></button>
+    </div>
+    <button id="btn-limpar-conversa" class="botao-texto-cinza">limpar conversa</button>
+  </section>
+
   <!-- ===================== ENTRADA DE NOTA ===================== -->
-  <section id="tela-enviar" class="tela ativa">
+  <section id="tela-enviar" class="tela">
     <div class="cartao">
       <h2>Entrada de nota</h2>
       <p class="ajuda">
@@ -66,7 +89,7 @@
       </p>
 
       <div id="area-arquivo" class="area-arquivo">
-        <div class="area-icone">📄</div>
+        <div class="area-icone" data-icone="documento" data-icone-tamanho="34"></div>
         <div class="area-texto">
           <strong>Toque para escolher</strong>
           <span>ou arraste o arquivo aqui</span>
@@ -74,7 +97,7 @@
         <input type="file" id="arquivo" multiple accept=".xml,.pdf,image/*" hidden>
       </div>
 
-      <button id="btn-camera" class="botao secundario largura-total">📷 Tirar foto da nota</button>
+      <button id="btn-camera" class="botao secundario largura-total" data-icone="camera"><span>Tirar foto da nota</span></button>
       <input type="file" id="camera" accept="image/*" capture="environment" multiple hidden>
 
       <ul id="lista-arquivos" class="lista-arquivos"></ul>
@@ -151,7 +174,7 @@
       </p>
 
       <div id="area-lista" class="area-arquivo">
-        <div class="area-icone">🧾</div>
+        <div class="area-icone" data-icone="lista" data-icone-tamanho="34"></div>
         <div class="area-texto">
           <strong>Toque para escolher</strong>
           <span>foto, print ou PDF da lista</span>
@@ -159,7 +182,7 @@
         <input type="file" id="arquivo-lista" multiple accept=".pdf,image/*" hidden>
       </div>
 
-      <button id="btn-foto-lista" class="botao secundario largura-total">📷 Tirar foto da lista</button>
+      <button id="btn-foto-lista" class="botao secundario largura-total" data-icone="camera"><span>Tirar foto da lista</span></button>
       <input type="file" id="camera-lista" accept="image/*" capture="environment" multiple hidden>
 
       <ul id="arquivos-lista" class="lista-arquivos"></ul>
@@ -191,9 +214,7 @@
     <div id="itens-orcamento"></div>
 
     <div class="cartao">
-      <button class="botao secundario largura-total" id="btn-adicionar-item">
-        + Adicionar outro produto
-      </button>
+      <button class="botao secundario largura-total" id="btn-adicionar-item" data-icone="mais"><span>Adicionar outro produto</span></button>
       <label class="campo">
         <span>Observação no orçamento <em>(sai no PDF)</em></span>
         <textarea id="obs-orcamento" rows="2"

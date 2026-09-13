@@ -7,7 +7,7 @@
 // Todas as consultas tem limite, para nunca travar o banco no meio do expediente.
 
 import { consultar, paraNumero, campoTexto, lerTexto } from '../db/firebird.js';
-import { buscarPorBarras, buscarPorDescricao, buscarPorCodigo } from '../db/produtos.js';
+import { buscarPorBarras, buscarPorDescricao, buscarPorCodigo, semelhanca } from '../db/produtos.js';
 
 const TETO = 50;
 
@@ -37,8 +37,18 @@ async function acharProduto(termo) {
     const porCodigo = await buscarPorCodigo(texto);
     if (porCodigo) return porCodigo;
   }
-  const achados = await buscarPorDescricao(texto, 1);
-  return achados[0] || null;
+
+  // Pega varios e fica com o MAIS parecido, nao com o primeiro que aparecer.
+  // Sem isso, perguntar de "sabao em pedra ype" responde sobre "sabao em po surf"
+  // - e a resposta sai confiante e errada, que e o pior tipo de erro.
+  const achados = await buscarPorDescricao(texto, 10);
+  if (!achados.length) return null;
+
+  const ordenados = achados
+    .map((produto) => ({ produto, nota: semelhanca(texto, produto.descricao) }))
+    .sort((a, b) => b.nota - a.nota);
+
+  return ordenados[0].produto;
 }
 
 /** Chave que o Solus usa nos itens de venda: barras, ou o codigo quando nao tem. */
@@ -380,6 +390,100 @@ export async function produtosParados({ dias = 180, quantos = 15 }) {
       estoque: paraNumero(l.ESTOQUEATUAL),
       custoUnitario: paraNumero(l.PRECOCUSTO),
       dinheiroParado: Number((paraNumero(l.ESTOQUEATUAL) * paraNumero(l.PRECOCUSTO)).toFixed(2)),
+    })),
+  };
+}
+
+/**
+ * Historico de mudanca de preco do produto.
+ * O Solus guarda isso na tabela ALTERAPRECO: data, quem mexeu, preco antes e depois.
+ */
+export async function historicoDePreco({ termo, quantos = 10 }) {
+  const produto = await acharProduto(termo);
+  if (!produto) return { encontrou: false, mensagem: `Nao achei o produto "${termo}".` };
+
+  const linhas = await consultar(
+    `SELECT FIRST ${limitar(quantos)} DATA, USUARIO, PVA, PVN
+       FROM ALTERAPRECO
+      WHERE TRIM(BARRAS) = ?
+      ORDER BY DATA DESC`,
+    [produto.barras || produto.codigo]
+  );
+
+  return {
+    encontrou: true,
+    produto: {
+      codigo: produto.codigo,
+      descricao: produto.descricao,
+      precoHoje: produto.vendaAtual,
+    },
+    alteracoes: linhas.map((l) => {
+      const antes = paraNumero(l.PVA);
+      const depois = paraNumero(l.PVN);
+      return {
+        data: dataBR(l.DATA),
+        quemAlterou: String(l.USUARIO || '').trim() || 'nao informado',
+        precoAntes: antes,
+        precoDepois: depois,
+        variacao: antes > 0 ? Number((((depois - antes) / antes) * 100).toFixed(1)) : null,
+      };
+    }),
+    observacao: linhas.length
+      ? undefined
+      : 'Esse produto nao tem alteracao de preco registrada no Solus.',
+  };
+}
+
+/** Ultima vez que ESTE cliente levou ESTE produto, e por quanto. */
+export async function ultimaVendaParaCliente({ termo, cliente, quantos = 5 }) {
+  const produto = await acharProduto(termo);
+  if (!produto) return { encontrou: false, mensagem: `Nao achei o produto "${termo}".` };
+
+  const texto = String(cliente || '').trim();
+  let codigo = /^\d{1,5}$/.test(texto) ? texto : null;
+  let nome = texto;
+
+  if (!codigo) {
+    const { buscarClientePorNome } = await import('../db/clientes.js');
+    const achados = await buscarClientePorNome(texto, 1);
+    if (!achados.length) return { encontrou: false, mensagem: `Nao achei o cliente "${texto}".` };
+    codigo = achados[0].codigo;
+    nome = achados[0].nome;
+  }
+
+  const linhas = await consultar(
+    `SELECT FIRST ${limitar(quantos, 5)} I.DATA, I.QTD, I.PRECO, P.NUMERO
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE TRIM(I.PRODUTO) = ? AND TRIM(P.CODCLIENTE) = ?
+        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
+        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+      ORDER BY I.DATA DESC`,
+    [chaveDoProduto(produto), codigo]
+  );
+
+  if (!linhas.length) {
+    return {
+      encontrou: true,
+      comprou: false,
+      produto: { codigo: produto.codigo, descricao: produto.descricao },
+      cliente: { codigo, nome },
+      mensagem: 'Esse cliente nunca levou esse produto.',
+      precoDeTabelaHoje: produto.vendaAtual,
+    };
+  }
+
+  return {
+    encontrou: true,
+    comprou: true,
+    produto: { codigo: produto.codigo, descricao: produto.descricao },
+    cliente: { codigo, nome },
+    precoDeTabelaHoje: produto.vendaAtual,
+    vezes: linhas.map((l) => ({
+      data: dataBR(l.DATA),
+      quantidade: paraNumero(l.QTD),
+      precoPago: paraNumero(l.PRECO),
+      pedido: Number(l.NUMERO),
     })),
   };
 }

@@ -1,6 +1,7 @@
 /* Tela de entrada de nota: ler a nota, conferir item a item e gravar no Solus. */
 
 import { $, $$, dinheiro, escapar, mostrarTela, avisar } from './comum.js';
+import { icone } from './icones.js';
 
 const estado = {
   arquivos: [],
@@ -66,9 +67,9 @@ function desenharArquivos() {
   ul.innerHTML = estado.arquivos
     .map((arquivo, indice) => `
       <li>
-        <span>${arquivo.name.toLowerCase().endsWith('.xml') ? '🟢' : '📄'}
+        <span>${icone(arquivo.name.toLowerCase().endsWith('.xml') ? 'certo' : 'documento', 16)}
           ${escapar(arquivo.name)} <em>(${(arquivo.size / 1024).toFixed(0)} KB)</em></span>
-        <button data-remover="${indice}" title="Remover">✕</button>
+        <button data-remover="${indice}" title="Remover" aria-label="Remover">${icone('fechar', 17)}</button>
       </li>`)
     .join('');
 

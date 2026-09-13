@@ -210,6 +210,17 @@ function limparAcento(palavra) {
 }
 
 /**
+ * Transforma a palavra num padrao de LIKE que ignora acento.
+ * O problema: quem digita escreve "SABAO", mas no banco esta "SABÃO" - e o LIKE
+ * comum nunca casa os dois. No Firebird o "_" vale por um caractere qualquer,
+ * entao "SABAO" vira "SAB_O", que acha as duas formas.
+ * So as vogais viram curinga; as consoantes seguram a busca no lugar.
+ */
+function padraoSemAcento(palavra) {
+  return palavra.replace(/[AEIOUC]/g, '_');
+}
+
+/**
  * Separa as palavras da busca em "fortes" (as que identificam o produto) e
  * "fracas" (medida, ligacao). A busca sempre comeca pelas fortes.
  */
@@ -241,12 +252,12 @@ export async function buscarPorDescricao(descricao, limite = 8) {
   const { todas, fortes } = palavrasDeBusca(descricao);
   if (!todas.length) return [];
 
-  const procurar = async (palavras) => {
+  const procurar = async (palavras, ignorarAcento = false) => {
     if (!palavras.length) return [];
     const condicoes = palavras.map(() => 'UPPER(DESCRICAO) LIKE ?').join(' AND ');
     return consultar(
       `SELECT FIRST ${limite} ${CAMPOS_PRODUTO} FROM PRODUTO WHERE ${condicoes}`,
-      palavras.map((p) => `%${p}%`)
+      palavras.map((p) => `%${ignorarAcento ? padraoSemAcento(p) : p}%`)
     );
   };
 
@@ -254,14 +265,16 @@ export async function buscarPorDescricao(descricao, limite = 8) {
   // principais -> a forte principal sozinha. Nunca cai numa palavra fraca
   // sozinha, senao "100 litros" traz o setor de baldes inteiro.
   const tentativas = [
-    todas,
-    fortes.length && fortes.length !== todas.length ? fortes : null,
-    fortes.length > 2 ? fortes.slice(0, 2) : null,
-    fortes.length > 1 ? [fortes[0]] : null,
+    { palavras: todas, ignorarAcento: false },
+    // mesma busca, mas aceitando acento no banco ("SABAO" achando "SABÃO")
+    { palavras: todas, ignorarAcento: true },
+    fortes.length && fortes.length !== todas.length ? { palavras: fortes, ignorarAcento: true } : null,
+    fortes.length > 2 ? { palavras: fortes.slice(0, 2), ignorarAcento: true } : null,
+    fortes.length > 1 ? { palavras: [fortes[0]], ignorarAcento: true } : null,
   ].filter(Boolean);
 
   for (const tentativa of tentativas) {
-    const linhas = await procurar(tentativa);
+    const linhas = await procurar(tentativa.palavras, tentativa.ignorarAcento);
     if (linhas.length) return linhas.map(montarProduto).filter(Boolean);
   }
   return [];

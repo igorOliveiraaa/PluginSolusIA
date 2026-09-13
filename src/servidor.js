@@ -19,6 +19,7 @@ import {
   salvarAplicacao, listarHistorico, lerAplicacao, marcarComoDesfeita, notaJaAplicada,
 } from './historico.js';
 import { rotas as rotasOrcamento } from './rotas-orcamento.js';
+import { rotasAssistente } from './rotas-assistente.js';
 import { exigirLogin } from './db/operadores.js';
 import { obterCertificado, ipsDaMaquina } from './https-local.js';
 
@@ -359,6 +360,7 @@ app.get('/api/modelos-ia', exigirLogin, async (req, res) => {
 
 // rotas de login, cliente e orcamento
 app.use(rotasOrcamento);
+app.use(rotasAssistente);
 
 const porta = carregarConfig().servidor?.porta || 3535;
 const portaSegura = Number(porta) + 1;

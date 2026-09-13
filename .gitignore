@@ -1,17 +1,13 @@
-# NUNCA subir para o GitHub:
+# ============================================
+# NUNCA subir para o GitHub
+# ============================================
 
-# configuracao com a chave da IA e a senha do banco
-dados/config.json
+# A pasta dados/ inteira: configuracao com a chave da IA e a senha do banco,
+# certificado HTTPS, historico de notas, orcamentos e exportacoes.
+# Tudo ali dentro tem dado real da loja ou segredo.
+dados/
 
-# certificado do HTTPS (chave privada)
-dados/certificado/
-
-# historico de notas e orcamentos (dados reais da loja)
-dados/historico/
-dados/uploads/
-dados/orcamentos/
-
-# copias e backups do banco do Solus (dados de clientes e vendas)
+# copias e backups do banco do Solus (produtos, clientes, vendas)
 *.FDB
 *.fdb
 *.FBK
@@ -19,10 +15,14 @@ dados/orcamentos/
 *.GBK
 *.gbk
 
-# arquivos de ambiente
+# variaveis de ambiente
 .env
 .env.*
 !.env.exemplo
 
+# dependencias e lixo
 node_modules/
 npm-debug.log*
+*.log
+.DS_Store
+Thumbs.db

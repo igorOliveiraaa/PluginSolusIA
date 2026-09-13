@@ -40,7 +40,19 @@ editável pela aba **Ajustes** da própria ferramenta.
 | `src/logica/precos.js` | Margem, preço sugerido e arredondamento |
 | `src/logica/conferencia.js` | Junta tudo e monta a tela de conferência |
 | `src/historico.js` | Histórico das notas aplicadas (é o que permite desfazer) |
-| `web/` | A interface (PWA, funciona no celular) |
+| `src/ia/assistente.js` | O assistente: escolhe a consulta e monta a resposta |
+| `src/ia/consultas.js` | As perguntas prontas (só leitura) |
+| `src/ia/sql-seguro.js` | Porteiro das consultas livres da IA |
+| `src/ia/exportar.js` | Resultado vira planilha (CSV) ou PDF |
+| `src/db/clientes.js` | Cliente, histórico de compra e último preço pago |
+| `src/db/orcamento.js` | Grava orçamento em PEDIDOS/ITEMPEDIDO |
+| `src/db/operadores.js` | Login com os usuários do Solus |
+| `src/leitura/cnpj.js` | Consulta de CNPJ na Receita |
+| `src/leitura/lista-texto.js` | Lê lista digitada sem gastar IA |
+| `src/pdf-orcamento.js` | PDF do orçamento |
+| `src/https-local.js` | Certificado do HTTPS da rede |
+| `web/` | A interface (PWA, funciona no celular e no PC) |
+| `web/icones.js` | Ícones em SVG (sem emoji, sem biblioteca) |
 | `src/ferramentas/` | Scripts de teste |
 
 ## O que aprendi do banco do Solus (importante, custou trabalho descobrir)
@@ -105,11 +117,31 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Digita o CNPJ, busca na Receita (BrasilAPI) e cadastra no Solus.
 - Avisa se o CNPJ já existe e se a empresa não está ATIVA.
 
-### 4. Login e acesso — pronto
+### 4. Assistente que sabe do sistema — pronto
+- Pergunta em português; ele escolhe a consulta, busca no banco e responde com o
+  número real. Nunca responde de cabeça.
+- 13 consultas prontas (vendas, compras, histórico de preço, estoque negativo,
+  parados, mais vendidos, melhores clientes, repetidos, resumo...) mais
+  **consulta livre** para o que não estava previsto.
+- A consulta livre passa por um porteiro (`sql-seguro.js`): só SELECT, um comando
+  só, sem tabela de senha, com limite de linhas e tempo. Testado contra 8
+  tentativas de comando perigoso — todas barradas.
+- Respeita a permissão de custo: quem não vê custo no Solus não vê aqui.
+- O resultado vira **planilha (CSV) ou PDF** com um clique.
+
+### 5. Login e acesso — pronto
 - Usa os **mesmos usuários e senhas do Solus** (tabela OPERADOR).
 - Respeita as permissões do Solus (ver custo, mexer em cadastro, fazer orçamento).
 - HTTPS com certificado próprio, para o celular instalar como aplicativo
   e o botão de compartilhar funcionar.
+- Trava de 10 minutos depois de 5 senhas erradas (as senhas do Solus são curtas).
+
+### 6. Visual — pronto
+- Vidro fosco, ícones em SVG desenhados no projeto (nenhum emoji, nenhuma
+  biblioteca externa), animações curtas.
+- No celular: abas em cima, botões grandes, respeita a área segura do aparelho.
+- No PC (1024px+): o menu vira barra lateral e a tela vira um app.
+- Respeita "reduzir animações" do sistema e tem estilo próprio para impressão.
 
 ### Pendente
 - **Testar com nota e lista reais da loja** (é o próximo passo).

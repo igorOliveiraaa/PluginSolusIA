@@ -3,6 +3,7 @@
 import {
   $, $$, api, dinheiro, escapar, numeroBR, dataBR, avisar, mostrarTela, aoDigitar, sessao,
 } from './comum.js';
+import { icone } from './icones.js';
 
 const estado = {
   arquivos: [],
@@ -127,8 +128,8 @@ function adicionarArquivos(lista) {
 
 function desenharArquivosLista() {
   $('#arquivos-lista').innerHTML = estado.arquivos.map((a, i) => `
-    <li><span>📎 ${escapar(a.name)}</span>
-    <button data-tirar="${i}">✕</button></li>`).join('');
+    <li><span>${icone('anexo', 16)} ${escapar(a.name)}</span>
+    <button data-tirar="${i}" aria-label="Remover">${icone('fechar', 17)}</button></li>`).join('');
 
   $$('#arquivos-lista [data-tirar]').forEach((botao) => {
     botao.addEventListener('click', () => {
@@ -495,9 +496,9 @@ function mostrarResultadoOrcamento(resultado) {
     </div>
 
     <div class="acoes-pdf">
-      <button class="botao principal" id="btn-compartilhar">Enviar no WhatsApp</button>
-      <button class="botao secundario" id="btn-baixar-pdf">Baixar PDF</button>
-      <button class="botao secundario" id="btn-imprimir">Imprimir</button>
+      <button class="botao principal" id="btn-compartilhar">${icone('compartilhar', 18)}<span>Enviar no WhatsApp</span></button>
+      <button class="botao secundario" id="btn-baixar-pdf">${icone('baixar', 18)}<span>Baixar PDF</span></button>
+      <button class="botao secundario" id="btn-imprimir">${icone('imprimir', 18)}<span>Imprimir</span></button>
     </div>
     <button class="botao secundario largura-total" id="btn-novo-orcamento">Fazer outro orçamento</button>`;
 

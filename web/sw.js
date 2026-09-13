@@ -1,10 +1,10 @@
 // Service worker: guarda a interface para abrir rapido no celular.
 // As chamadas de API nunca sao guardadas - dados vem sempre do servidor.
 
-const CACHE = 'ferramentas-solus-v2';
+const CACHE = 'plugin-ia-solus-v3';
 const ARQUIVOS = [
   '.', 'index.html', 'estilo.css', 'manifest.json', 'icone.svg',
-  'inicio.js', 'comum.js', 'login.js', 'app.js', 'orcamento.js',
+  'inicio.js', 'comum.js', 'login.js', 'app.js', 'orcamento.js', 'assistente.js',
 ];
 
 self.addEventListener('install', (evento) => {
