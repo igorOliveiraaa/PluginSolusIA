@@ -26,3 +26,7 @@ npm-debug.log*
 *.log
 .DS_Store
 Thumbs.db
+
+# rascunhos que eu uso para testar coisa rapida (nao sao parte do projeto)
+_scratch*
+_conserto*
