@@ -1,5 +1,5 @@
 // Configuracao da ferramenta. Fica num arquivo JSON simples (dados/config.json)
-// para o Igor poder mudar pela tela de Ajustes, sem mexer em codigo.
+// para dar para mudar pela tela de Ajustes, sem mexer em codigo.
 //
 // O PC servidor pode ter MAIS DE UM Solus (um por CNPJ). Por isso a configuracao
 // tem duas partes:

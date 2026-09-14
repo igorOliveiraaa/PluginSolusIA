@@ -1,6 +1,6 @@
 # Plugin IA Solus
 
-Ferramentas que conversam direto com o **Solus**, o sistema de loja do Igor
+Ferramentas que conversam direto com o **Solus**, o sistema de loja
 (programa Delphi antigo, banco **Firebird 2.5**).
 
 ## O que é a ferramenta de hoje
@@ -218,7 +218,7 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   porque `ITEMPEDIDO.PRECOCUSTO` guarda o custo que a mercadoria tinha NO DIA da
   venda. Devolve faturamento, custo, lucro bruto, margem, o que deu mais lucro e o
   que saiu **abaixo do custo**. A resposta é obrigada a dizer que é **lucro BRUTO**
-  (sem imposto, aluguel, folha, cartão) — senão o Igor decide em cima do número errado.
+  (sem imposto, aluguel, folha, cartão) — senão quem lê decide em cima do número errado.
 - **Monta orçamento pelo chat**: "monta um orçamento para o Jad de 10 detergente".
   É a única ferramenta dele que faz algo — e mesmo assim **não grava no Solus**:
   deixa pronto na aba Orçamento e aparece o botão "Abrir e conferir". Recusa quem
@@ -270,7 +270,7 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Orçamento é liberado para todos **de propósito**: PERMITEORCA está vazio para
   todo mundo neste Solus, e exigir travaria o balcão.
 - ⚠️ Na loja, só quem é **gerente** (TIPO=G) ou tem "acessa cadastro" consegue
-  lançar nota. A ELAINE é gerente, então segue normal. Se outra pessoa precisar,
+  lançar nota. Quem lança nota hoje é gerente, então segue normal. Se outra pessoa precisar,
   marque ACESSACADASTRO no usuário dela dentro do Solus.
 
 ### 9. Visual — pronto
@@ -314,7 +314,7 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Depois de gravar a nota aparece **Imprimir etiquetas**: sai uma folha A4 com o
   preço novo dos produtos daquela nota, para papel adesivo comum.
 - **Uma etiqueta por PRODUTO, não por unidade** — 20 águas de 5L viram UMA etiqueta
-  da de 5L, e outra separada para a de 1L. É a regra que o Igor deixou clara.
+  da de 5L, e outra separada para a de 1L. É a regra que o dono da loja deixou clara.
 - Preto e branco, preço grande (o dobro do nome), linhas de corte tracejadas
   atravessando a folha. Dois tamanhos: 24 por folha (64 x 35 mm) e 10 (96 x 56 mm),
   que batem com os adesivos picotados comuns.
