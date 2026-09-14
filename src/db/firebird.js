@@ -63,8 +63,9 @@ export function consultarBancoAvulso(banco, sql, params = [], tempoMaximo = 1000
       host: banco.host || 'localhost',
       port: banco.porta || 3050,
       database: normalizarCaminho(banco.caminho),
-      user: banco.usuario || 'SYSDBA',
-      password: banco.senha || 'masterkey',
+      // sem usuario/senha informados, vale o padrao da configuracao (ver config.js)
+      user: banco.usuario || carregarConfig().banco?.usuario,
+      password: banco.senha || carregarConfig().banco?.senha,
       lowercase_keys: false,
       charset: 'WIN1252',
       blobAsText: true,
@@ -142,7 +143,17 @@ function traduzErro(erro) {
   if (texto.includes('ECONNREFUSED'))
     return new Error('O servidor Firebird nao respondeu. O PC servidor esta ligado e o Firebird rodando?');
   if (texto.toLowerCase().includes('password') || texto.includes('335544472'))
-    return new Error('Usuario ou senha do Firebird incorretos (normalmente SYSDBA / masterkey).');
+    return new Error('Usuario ou senha do Firebird incorretos. Confira em "Configurar lojas".');
+
+  // Rede de seguranca: o Firebird responde em ingles e cheio de codigo. Nada
+  // disso pode chegar na tela de quem esta no balcao.
+  if (/string right truncation|numeric overflow|arithmetic exception/i.test(texto))
+    return new Error('O que foi digitado e maior do que cabe nesse campo do Solus.');
+  if (/deadlock|lock conflict/i.test(texto))
+    return new Error('O Solus esta com esse registro aberto em outra tela. Feche e tente de novo.');
+  if (/Dynamic SQL Error|SQLSTATE|token unknown/i.test(texto))
+    return new Error('Nao consegui fazer essa consulta no Solus. Tente de outro jeito.');
+
   return erro instanceof Error ? erro : new Error(texto);
 }
 

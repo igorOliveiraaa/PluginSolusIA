@@ -13,7 +13,7 @@ const itens = achados.map((p, i) => ({
 const pdf = await gerarPdfOrcamento({
   orcamento: { cliente, itens },
   numero: 156343,
-  operador: { nome: 'ELAINE' },
+  operador: { nome: 'OPERADOR DE TESTE' },
   observacao: 'Entrega em ate 3 dias uteis. Pagamento em boleto 28 dias.',
 });
 

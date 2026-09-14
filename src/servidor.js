@@ -8,8 +8,13 @@ import https from 'node:https';
 import path from 'node:path';
 
 import { carregarConfig, salvarConfig, garantirPastas, PASTAS } from './config.js';
+import { lerLogo, guardarLogo, apagarLogo } from './logo.js';
 import { testarConexao, reiniciarConexao } from './db/firebird.js';
-import { limparCacheColunas, buscarPorBarras, buscarPorCodigo, buscarPorDescricao } from './db/produtos.js';
+import {
+  limparCacheColunas, buscarPorBarras, buscarPorCodigo, buscarPorDescricao, buscarVariosPorCodigo,
+  semCustoParaQuemNaoPodeVer,
+} from './db/produtos.js';
+import { gerarPdfEtiquetas, contarFolhas, TAMANHOS } from './etiquetas.js';
 import { invalidarCatalogo } from './db/catalogo.js';
 import { aplicarNota, desfazer } from './db/gravacao.js';
 import { lerXmlNfe, pareceXmlNfe } from './leitura/xml.js';
@@ -25,7 +30,7 @@ import { rotasVendas } from './rotas-vendas.js';
 import { rotasLojas } from './rotas-lojas.js';
 import { exec } from 'node:child_process';
 import { lojaAtualId } from './loja-atual.js';
-import { exigirLogin } from './db/operadores.js';
+import { exigirLogin, exigirPermissao } from './db/operadores.js';
 import { obterCertificado, ipsDaMaquina, ehRedeLocal } from './https-local.js';
 
 garantirPastas();
@@ -55,6 +60,14 @@ function guardarConferencia(dados) {
   }
   return id;
 }
+
+/**
+ * Esconde custo e margem de quem nao pode ver no Solus.
+ * A tela ja escondia, mas o numero ia junto na resposta da API — bastava abrir
+ * o navegador para ler. Esconder na tela nao e esconder.
+ */
+const esconderCusto = (produtos, req) =>
+  semCustoParaQuemNaoPodeVer(produtos, Boolean(req.operador?.permissoes?.verCusto));
 
 function responderErro(res, erro, status = 400) {
   console.error('[erro]', erro?.message || erro);
@@ -216,13 +229,13 @@ app.get('/api/produtos', exigirLogin, async (req, res) => {
     const somenteDigitos = termo.replace(/\D/g, '');
     if (somenteDigitos.length >= 8) {
       const porBarras = await buscarPorBarras(somenteDigitos);
-      if (porBarras) return res.json({ ok: true, produtos: [porBarras] });
+      if (porBarras) return res.json({ ok: true, produtos: esconderCusto([porBarras], req) });
     }
     const porCodigo = /^\d{1,6}$/.test(termo) ? await buscarPorCodigo(termo) : null;
     const porNome = await buscarPorDescricao(termo, 15);
 
     const lista = porCodigo ? [porCodigo, ...porNome] : porNome;
-    res.json({ ok: true, produtos: lista });
+    res.json({ ok: true, produtos: esconderCusto(lista, req) });
   } catch (erro) {
     responderErro(res, erro);
   }
@@ -232,7 +245,7 @@ app.get('/api/produtos', exigirLogin, async (req, res) => {
 // Gravar no Solus
 // ---------------------------------------------------------------------------
 
-app.post('/api/aplicar', exigirLogin, async (req, res) => {
+app.post('/api/aplicar', exigirLogin, exigirPermissao('mexerProduto'), async (req, res) => {
   try {
     const { id, decisoes, operador, atualizarEstoque = true } = req.body;
     const guardada = conferenciasAbertas.get(id);
@@ -298,7 +311,7 @@ app.get('/api/historico/:id', exigirLogin, (req, res) => {
   }
 });
 
-app.post('/api/desfazer/:id', exigirLogin, async (req, res) => {
+app.post('/api/desfazer/:id', exigirLogin, exigirPermissao('mexerProduto'), async (req, res) => {
   try {
     const dados = lerAplicacao(req.params.id);
     if (!dados) throw new Error('Lancamento nao encontrado.');
@@ -335,7 +348,7 @@ app.get('/api/config', exigirLogin, (req, res) => {
   });
 });
 
-app.post('/api/config', exigirLogin, (req, res) => {
+app.post('/api/config', exigirLogin, exigirPermissao('gerente'), (req, res) => {
   try {
     const novo = { ...req.body };
     const atual = carregarConfig();
@@ -353,6 +366,87 @@ app.post('/api/config', exigirLogin, (req, res) => {
   } catch (erro) {
     responderErro(res, erro);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Etiquetas de prateleira
+// ---------------------------------------------------------------------------
+
+/**
+ * Folha A4 de etiquetas para os produtos que acabaram de entrar.
+ *
+ * O preco NAO vem da tela: e lido fresco do cadastro. Assim a etiqueta mostra
+ * exatamente o que o Solus vai cobrar no caixa - se alguem mexeu no preco
+ * depois de gravar a nota, a etiqueta sai com o valor certo mesmo assim.
+ */
+app.post('/api/etiquetas', exigirLogin, async (req, res) => {
+  try {
+    const pedidos = Array.isArray(req.body.produtos) ? req.body.produtos : [];
+    const tamanho = TAMANHOS[req.body.tamanho] ? req.body.tamanho : 'padrao';
+    if (!pedidos.length) throw new Error('Escolha pelo menos um produto para imprimir.');
+    if (pedidos.length > 300) throw new Error('Sao muitos produtos de uma vez. Imprima em partes.');
+
+    const doBanco = await buscarVariosPorCodigo(pedidos.map((p) => p.codigo));
+    const porCodigo = new Map(doBanco.map((p) => [p.codigo, p]));
+
+    const produtos = pedidos.map((pedido) => {
+      const produto = porCodigo.get(String(pedido.codigo || '').trim());
+      if (!produto) return null;
+      return {
+        codigo: produto.codigo,
+        descricao: produto.descricao,
+        barras: produto.barras,
+        preco: produto.vendaAtual,
+        copias: Number(pedido.copias) || 1,
+      };
+    }).filter(Boolean);
+
+    if (!produtos.length) throw new Error('Nao achei esses produtos no cadastro.');
+
+    const pdf = await gerarPdfEtiquetas({ produtos, tamanho });
+    const conta = contarFolhas(produtos, tamanho);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="etiquetas-${conta.etiquetas}.pdf"`);
+    res.setHeader('X-Etiquetas', String(conta.etiquetas));
+    res.setHeader('X-Folhas', String(conta.folhas));
+    res.send(pdf);
+  } catch (erro) {
+    responderErro(res, erro);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Logo da loja (sai no PDF do orcamento)
+// ---------------------------------------------------------------------------
+
+/** Diz se a loja tem logo, para a tela de Ajustes mostrar a previa. */
+app.get('/api/logo/existe', exigirLogin, (req, res) => {
+  const logo = lerLogo();
+  res.json({ ok: true, tem: Boolean(logo), quando: logo?.quando || null });
+});
+
+/** A imagem em si. Serve tanto para a previa em Ajustes quanto para o PDF. */
+app.get('/api/logo', exigirLogin, (req, res) => {
+  const logo = lerLogo();
+  if (!logo) return res.status(404).json({ ok: false, erro: 'Essa loja ainda nao tem logo.' });
+  res.setHeader('Content-Type', logo.tipo);
+  // o navegador nao pode guardar: trocar o logo tem que aparecer na hora
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(logo.dados);
+});
+
+app.post('/api/logo', exigirLogin, exigirPermissao('gerente'), upload.single('logo'), (req, res) => {
+  try {
+    const guardado = guardarLogo(req.file?.buffer);
+    res.json({ ok: true, formato: guardado.formato });
+  } catch (erro) {
+    responderErro(res, erro);
+  }
+});
+
+app.delete('/api/logo', exigirLogin, exigirPermissao('gerente'), (req, res) => {
+  res.json({ ok: true, apagou: apagarLogo() });
 });
 
 app.get('/api/testar-banco', exigirLogin, async (req, res) => {

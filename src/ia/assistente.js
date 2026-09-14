@@ -4,13 +4,21 @@
 // abaixo, a ferramenta consulta o banco do Solus, e so entao a IA escreve a
 // resposta com os numeros que voltaram. Assim ela nao inventa dado.
 //
-// Todas as ferramentas sao de LEITURA. O assistente nao altera nada na loja.
+// Quase todas as ferramentas sao de LEITURA: o assistente nao altera nada na loja.
+// A unica excecao e `montar_orcamento`, e mesmo ela nao grava no Solus - so deixa
+// o orcamento pronto na aba Orcamento para a pessoa conferir e decidir.
 
 import { chamarGemini, configEconomica } from '../leitura/gemini.js';
 import * as consultas from './consultas.js';
 import { consultaLivre, MAPA_DO_BANCO } from './sql-seguro.js';
+import { FERRAMENTA_MONTAR_ORCAMENTO } from './montar-pelo-chat.js';
 
 const MAX_RODADAS = 6;        // quantas consultas seguidas ela pode fazer numa pergunta
+// Teto de tempo de UMA pergunta. Cada rodada ja tem o seu limite, mas seis
+// rodadas emendadas num dia em que o Google esta cheio deixariam a pessoa
+// esperando por minutos sem nenhuma resposta. Passando disso, responde com o
+// que ja conseguiu apurar.
+const TEMPO_DA_PERGUNTA_MS = 150000;
 
 // ---------------------------------------------------------------------------
 // As ferramentas que a IA pode usar
@@ -62,7 +70,10 @@ const FERRAMENTAS = [
   },
   {
     name: 'ultima_venda_para_cliente',
-    description: 'Quando um cliente especifico levou um produto especifico e por quanto pagou. Use para "quanto o fulano pagou nisso da ultima vez".',
+    description: 'Quando um cliente levou um produto e por quanto pagou. Use para "quanto o fulano pagou nisso da ultima vez". '
+      + 'Procura em TODOS os cadastros com aquele nome (a mesma rede tem varios CNPJs, um por cidade) '
+      + 'e diz de qual deles foi cada compra. Em item vendido por metro quadrado (tapete personalizado) '
+      + 'devolve tambem os metros e o preco do m2.',
     parameters: {
       type: 'object',
       properties: {
@@ -76,7 +87,8 @@ const FERRAMENTAS = [
   },
   {
     name: 'compras_do_cliente',
-    description: 'O que um cliente comprou, com data, quantidade e preco pago.',
+    description: 'O que um cliente comprou, com data, quantidade e preco pago. '
+      + 'Procura em todos os cadastros com aquele nome e diz de qual cidade/CNPJ foi cada compra.',
     parameters: {
       type: 'object',
       properties: { cliente: texto('nome ou codigo do cliente'), quantos: numero('quantos itens') },
@@ -140,6 +152,23 @@ const FERRAMENTAS = [
     executar: consultas.produtosRepetidos,
   },
   {
+    name: 'lucro_do_periodo',
+    description: 'Quanto a loja lucrou num periodo: faturamento, custo da mercadoria, '
+      + 'lucro bruto, margem, o que deu mais lucro e o que saiu ABAIXO do custo. '
+      + 'Use para "qual foi meu lucro", "quanto lucrei no mes passado", "deu lucro?". '
+      + 'Passe mes+ano para um mes fechado, ou dias para um periodo corrido.',
+    parameters: {
+      type: 'object',
+      properties: {
+        dias: numero('periodo corrido em dias (padrao 30)'),
+        mes: numero('mes fechado, 1 a 12'),
+        ano: numero('ano do mes fechado'),
+        quantos: numero('quantos produtos listar'),
+      },
+    },
+    executar: consultas.lucroDoPeriodo,
+  },
+  {
     name: 'resumo_da_loja',
     description: 'Numeros gerais: quantos produtos, clientes, fornecedores, vendas dos ultimos 30 dias.',
     parameters: { type: 'object', properties: {} },
@@ -158,6 +187,9 @@ const FERRAMENTAS = [
     },
     executar: consultaLivre,
   },
+
+  // a unica que FAZ algo (e mesmo assim nao grava no Solus)
+  FERRAMENTA_MONTAR_ORCAMENTO,
 ];
 
 const PELO_NOME = new Map(FERRAMENTAS.map((f) => [f.name, f]));
@@ -181,6 +213,38 @@ COMO VOCE TRABALHA:
   mostre as opcoes e pergunte qual e, em vez de escolher sozinho.
 - Se a ferramenta nao achar nada, diga isso com todas as letras. Nunca invente.
 - Pode usar varias ferramentas seguidas para responder uma pergunta so.
+
+QUANDO PEDIREM UM ORCAMENTO ("faz um orcamento de...", "monta pro fulano..."):
+- Use a ferramenta montar_orcamento. Copie os itens do jeito que a pessoa pediu,
+  um por linha, com a quantidade na frente. Nunca invente item nem quantidade.
+- Se a pessoa nao disser a quantidade de algum item, PERGUNTE antes de montar.
+- Se a ferramenta devolver "precisaEscolherCliente", mostre os clientes achados e
+  pergunte qual e. Nao escolha por conta propria.
+- Depois de montar, responda curto: o total, quantos itens ficaram esperando
+  escolha, e diga para abrir a aba Orcamento e conferir. Deixe claro que
+  NADA foi gravado no Solus: gravar e sempre a pessoa quem faz.
+- Nunca prometa que gravou, faturou ou emitiu nota. Voce nao faz nada disso.
+
+CLIENTE COM VARIOS CNPJs (acontece direto nesta loja):
+- A mesma rede tem um cadastro por cidade. As consultas ja olham em TODOS.
+- Na resposta, diga de QUAL cidade/CNPJ foi cada compra. Nunca junte tudo como
+  se fosse um cliente so, e nunca diga "nunca comprou" sem olhar todos.
+
+QUANDO PERGUNTAREM DE LUCRO:
+- Use lucro_do_periodo. O numero que volta e LUCRO BRUTO: venda menos o custo da
+  mercadoria. DIGA ISSO com todas as letras na resposta, e diga que NAO estao
+  descontados imposto, aluguel, folha, taxa de cartao e as outras despesas.
+  Se a pessoa achar que e o que sobrou no bolso, a conta dela vai sair errada.
+- Mostre faturamento, custo, lucro bruto e margem. Se vier avisoDeConfianca,
+  repita esse aviso.
+- Se houver produto vendido ABAIXO do custo, avise: e dinheiro saindo.
+
+TAPETE E O QUE E VENDIDO POR METRO QUADRADO:
+- A venda fica gravada como a PECA inteira ("TAPETE PERSONALIZADO KAPAZI 3.70 X
+  2.10" por R$ 2.952,60). O numero que interessa para orcar e o do METRO: a
+  consulta ja devolve em precoPorMetroQuadrado.
+- Responda sempre os dois: o valor da peca E o valor do m2, com a medida.
+- Se o m2 de uma venda estiver diferente do preco de tabela de hoje, diga isso.
 
 COMO VOCE ESCREVE:
 - Em portugues do Brasil, simples e direto, como quem trabalha no balcao.
@@ -226,8 +290,10 @@ export async function perguntar({ pergunta, historico = [], operador }) {
   ];
 
   const consultasFeitas = [];
+  const comecou = Date.now();
 
   for (let rodada = 0; rodada < MAX_RODADAS; rodada += 1) {
+    if (Date.now() - comecou > TEMPO_DA_PERGUNTA_MS) break;
     const dados = await chamarIA({ conteudos, operador });
     const partes = dados?.candidates?.[0]?.content?.parts || [];
 
@@ -240,6 +306,7 @@ export async function perguntar({ pergunta, historico = [], operador }) {
         resposta: resposta || 'Nao consegui montar uma resposta para isso.',
         consultas: consultasFeitas,
         dadosParaExportar: escolherDadosParaExportar(consultasFeitas),
+        orcamentoMontado: orcamentoQueFoiMontado(consultasFeitas),
       };
     }
 
@@ -258,7 +325,7 @@ export async function perguntar({ pergunta, historico = [], operador }) {
         resultado = { erro: `Ferramenta ${chamada.name} nao existe.` };
       } else {
         try {
-          resultado = await ferramenta.executar(chamada.args || {});
+          resultado = await ferramenta.executar(chamada.args || {}, { operador });
         } catch (erro) {
           resultado = { erro: erro.message };
         }
@@ -273,10 +340,15 @@ export async function perguntar({ pergunta, historico = [], operador }) {
     conteudos.push({ role: 'user', parts: respostasDasFerramentas });
   }
 
+  const demorou = Date.now() - comecou > TEMPO_DA_PERGUNTA_MS;
   return {
-    resposta: 'Essa pergunta ficou complicada demais e precisei parar no meio. Tente perguntar de um jeito mais direto.',
+    resposta: demorou
+      ? 'A IA esta demorando demais agora (o servico do Google costuma estar cheio nesse horario). '
+        + 'Tente de novo em um minuto, ou pergunte de um jeito mais direto.'
+      : 'Essa pergunta ficou complicada demais e precisei parar no meio. Tente perguntar de um jeito mais direto.',
     consultas: consultasFeitas,
     dadosParaExportar: escolherDadosParaExportar(consultasFeitas),
+    orcamentoMontado: orcamentoQueFoiMontado(consultasFeitas),
   };
 }
 
@@ -303,3 +375,24 @@ function escolherDadosParaExportar(consultasFeitas) {
 }
 
 export { FERRAMENTAS };
+
+/**
+ * Se a IA montou um orcamento nesta pergunta, devolve o codigo dele.
+ * E o que faz aparecer o botao "Abrir o orcamento" embaixo da resposta.
+ */
+function orcamentoQueFoiMontado(consultasFeitas) {
+  for (let i = consultasFeitas.length - 1; i >= 0; i -= 1) {
+    const feita = consultasFeitas[i];
+    if (feita.ferramenta !== 'montar_orcamento') continue;
+    const r = feita.resultado || {};
+    if (!r.id) continue;
+    return {
+      id: r.id,
+      cliente: r.cliente,
+      total: r.total,
+      quantidadeItens: (r.itens || []).length,
+      itensParaEscolher: r.itensParaEscolher || 0,
+    };
+  }
+  return null;
+}

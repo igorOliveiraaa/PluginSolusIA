@@ -2,9 +2,9 @@
 // Ninguem precisa decorar senha nova, e as permissoes que ja existem no Solus
 // (ver custo, mexer em cadastro, fazer orcamento) valem tambem aqui.
 //
-// Observacao de seguranca: o Solus guarda a senha em texto puro no banco.
-// Nao da para mudar isso sem quebrar o sistema, entao a ferramenta apenas
-// compara - e por isso ela so deve rodar dentro da rede da loja.
+// Observacao de seguranca: a ferramenta nao muda como o Solus guarda as senhas,
+// so confere se batem com o que ja esta la. Por isso ela deve rodar SOMENTE
+// dentro da rede da loja - nunca exposta na internet.
 
 import crypto from 'node:crypto';
 import { consultar, campoTexto, lerTexto } from './firebird.js';
@@ -15,9 +15,8 @@ const sessoes = new Map();
 const VALIDADE = 12 * 60 * 60 * 1000;      // 12 horas: um dia de trabalho
 
 // Protecao contra quem fica tentando adivinhar a senha.
-// As senhas do Solus sao curtas e ficam em texto puro no banco, entao sem isso
-// um robo testaria milhares de senhas por minuto - especialmente se a ferramenta
-// um dia for acessada de fora da loja.
+// As senhas do Solus sao curtas (quatro digitos), entao sem isso um robo
+// testaria todas em poucos minutos.
 const tentativas = new Map();
 const MAX_TENTATIVAS = 5;
 const CASTIGO = 10 * 60 * 1000;            // 10 minutos travado
@@ -72,6 +71,12 @@ async function autenticarNaLoja(nome, senha, origem, loja, quantidadeDeLojas) {
   const chave = String(senha || '').trim();
   if (!usuario || !chave) throw new Error('Informe usuario e senha.');
 
+  // Nome maior do que cabe no campo do banco nao existe - e mandar assim faz o
+  // Firebird responder um erro tecnico em ingles na cara de quem esta entrando.
+  if (usuario.length > 40 || chave.length > 40) {
+    throw new Error('Usuario ou senha incorretos.');
+  }
+
   // a trava de tentativas vale por loja (o mesmo nome pode existir nas duas)
   const origemNaLoja = `${loja.id}|${origem}`;
   conferirBloqueio(usuario, origemNaLoja);
@@ -115,9 +120,20 @@ async function autenticarNaLoja(nome, senha, origem, loja, quantidadeDeLojas) {
     permissoes: {
       // gerente pode tudo; os outros seguem o que esta marcado no Solus
       verCusto: gerente || ehSim(operador.CUSTO),
+
+      // mexer no cadastro do produto (preco, custo, estoque) e o que a entrada de
+      // nota faz. Neste Solus quase ninguem tem ACESSACADASTRO marcado, entao na
+      // pratica so gerente lanca nota - que e como o proprio Solus se comporta.
       mexerProduto: gerente || ehSim(operador.ACESSACADASTRO),
+
       mexerCliente: gerente || ehSim(operador.ACESSACADASTROCLI) || ehSim(operador.CLIENTE),
-      fazerOrcamento: gerente || ehSim(operador.PERMITEORCA) || true,
+
+      // Orcamento e liberado para todo mundo DE PROPOSITO: quem atende no balcao
+      // precisa montar orcamento, e no banco da loja o campo PERMITEORCA esta
+      // vazio para todos - exigir ele deixaria so os gerentes fazerem orcamento.
+      // (Antes isto estava escrito como "gerente || ehSim(...) || true", que dava
+      //  a impressao de haver uma checagem quando nunca houve.)
+      fazerOrcamento: true,
     },
   };
 
@@ -167,12 +183,27 @@ export function exigirLogin(req, res, next) {
 }
 
 /** Middleware que exige uma permissao especifica. */
+// O que dizer quando falta permissao. Mensagem generica nao ajuda ninguem:
+// a pessoa precisa saber o que fazer para destravar.
+const EXPLICACAO = {
+  mexerProduto: 'Seu usuario nao tem acesso ao cadastro de produtos no Solus, e lancar nota '
+    + 'muda preco, custo e estoque. Entre com um usuario gerente, ou peca para marcarem '
+    + '"acessa cadastro" no seu usuario dentro do Solus.',
+  mexerCliente: 'Seu usuario nao tem acesso ao cadastro de clientes no Solus.',
+  verCusto: 'Seu usuario nao pode ver custo nem margem no Solus.',
+  gerente: 'So um usuario gerente pode mexer nos ajustes do Plugin.',
+};
+
 export function exigirPermissao(nome) {
   return (req, res, next) => {
-    if (!req.operador?.permissoes?.[nome]) {
+    const temPermissao = nome === 'gerente'
+      ? req.operador?.gerente
+      : req.operador?.permissoes?.[nome];
+
+    if (!temPermissao) {
       return res.status(403).json({
         ok: false,
-        erro: 'Seu usuario nao tem permissao para isso no Solus.',
+        erro: EXPLICACAO[nome] || 'Seu usuario nao tem permissao para isso no Solus.',
       });
     }
     next();

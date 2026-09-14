@@ -2,6 +2,7 @@
 
 import { $, api, escapar, avisar, sessao } from './comum.js';
 import { icone } from './icones.js';
+import { abrirOrcamentoMontado } from './orcamento.js';
 
 const conversa = [];       // { papel: 'pessoa' | 'ia', texto }
 let pensando = false;
@@ -16,6 +17,8 @@ const SUGESTOES = [
   'Quais produtos estão parados há mais de 6 meses?',
   'Como mudou o preço do sabão em pedra?',
   'Quais meus melhores clientes do ano?',
+  'Monta um orçamento de 10 detergente ypê 500ml e 2 água sanitária 5L',
+  'Qual foi meu lucro no mês passado?',
 ];
 
 /** Markdown simples: negrito, lista, tabela e quebra de linha. */
@@ -116,6 +119,7 @@ function desenhar() {
       <div class="fala ia">
         <div class="balao">
           ${formatar(m.texto)}
+          ${m.orcamento ? cartaoDoOrcamento(m.orcamento) : ''}
           ${m.consultou?.length
             ? `<details class="de-onde">
                  <summary>de onde veio esse número</summary>
@@ -127,7 +131,44 @@ function desenhar() {
   }).join('')
     + (pensando ? '<div class="fala ia"><div class="balao pensando"><span></span><span></span><span></span></div></div>' : '');
 
+  area.querySelectorAll('[data-abrir-orcamento]').forEach((botao) => {
+    botao.addEventListener('click', async () => {
+      botao.disabled = true;
+      try {
+        await abrirOrcamentoMontado(botao.dataset.abrirOrcamento);
+      } catch (erro) {
+        avisar(erro.message, 'erro');
+        botao.disabled = false;
+      }
+    });
+  });
+
   area.scrollTop = area.scrollHeight;
+}
+
+/**
+ * O convite para conferir o orçamento que ela montou.
+ * De propósito NÃO tem botão de gravar aqui: conferir preço item a item é na
+ * tela de orçamento, com o produto, o estoque e o que o cliente pagou na frente.
+ */
+function cartaoDoOrcamento(orcamento) {
+  const total = 'R$ ' + (Number(orcamento.total) || 0).toFixed(2).replace('.', ',');
+  return `
+    <div class="orcamento-do-chat">
+      <div>
+        <strong>Orçamento montado para ${escapar(orcamento.cliente || 'CONSUMIDOR')}</strong>
+        <span class="ajuda" style="display:block;margin:2px 0 0">
+          ${orcamento.quantidadeItens} ${orcamento.quantidadeItens === 1 ? 'item' : 'itens'} · ${total}
+          ${orcamento.itensParaEscolher
+            ? ` · <strong>${orcamento.itensParaEscolher} ${orcamento.itensParaEscolher === 1 ? 'espera' : 'esperam'} você escolher</strong>`
+            : ''}
+          <br>Nada foi gravado no Solus ainda.
+        </span>
+      </div>
+      <button class="botao principal" data-abrir-orcamento="${escapar(orcamento.id)}">
+        Abrir e conferir
+      </button>
+    </div>`;
 }
 
 function nomeAmigavel(ferramenta) {
@@ -145,7 +186,9 @@ function nomeAmigavel(ferramenta) {
     produtos_parados: 'produtos parados no estoque',
     produtos_repetidos: 'produtos cadastrados repetidos',
     resumo_da_loja: 'números gerais da loja',
+    lucro_do_periodo: 'faturamento e custo das vendas do período',
     consulta_livre: 'consulta montada na hora no sistema',
+    montar_orcamento: 'montagem do orçamento com os preços do sistema',
   };
   return nomes[ferramenta] || ferramenta;
 }
@@ -173,7 +216,12 @@ async function enviar() {
       }),
     });
 
-    conversa.push({ papel: 'ia', texto: resposta.resposta, consultou: resposta.consultou });
+    conversa.push({
+      papel: 'ia',
+      texto: resposta.resposta,
+      consultou: resposta.consultou,
+      orcamento: resposta.orcamentoMontado || null,
+    });
     temExportacao = resposta.podeExportar;
     if (temExportacao) {
       $('#linhas-exportar').textContent = `${resposta.quantidadeLinhas} ${resposta.quantidadeLinhas === 1 ? 'linha' : 'linhas'}`;

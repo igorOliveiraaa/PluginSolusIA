@@ -8,6 +8,8 @@
 
 import { consultar, paraNumero, campoTexto, lerTexto } from '../db/firebird.js';
 import { buscarPorBarras, buscarPorDescricao, buscarPorCodigo, semelhanca } from '../db/produtos.js';
+import { chavesDoProduto } from '../db/catalogo.js';
+import { porMetroQuadrado } from '../logica/medidas.js';
 
 const TETO = 50;
 
@@ -51,14 +53,68 @@ async function acharProduto(termo) {
   return ordenados[0].produto;
 }
 
-/** Chave que o Solus usa nos itens de venda: barras, ou o codigo quando nao tem. */
-function chaveDoProduto(produto) {
-  return produto.barras || produto.codigo;
+/**
+ * As chaves que o Solus usa nos itens de venda.
+ * Nao e uma so: ora o codigo de barras, ora o codigo curto, ora com zeros na
+ * frente. Procurar por uma forma so fazia a resposta ser "nunca comprou" mesmo
+ * com a venda gravada.
+ */
+function chavesDaVenda(produto) {
+  const chaves = chavesDoProduto(produto);
+  return chaves.length ? chaves.slice(0, 8) : [produto.barras || produto.codigo];
+}
+
+const marcadores = (lista) => lista.map(() => '?').join(', ');
+
+/**
+ * Acha TODOS os cadastros de cliente com aquele nome.
+ *
+ * A loja tem uma rede grande com 18 cadastros do mesmo nome, um por CNPJ/cidade.
+ * Antes a consulta pegava so o primeiro e respondia "nunca comprou" com toda a
+ * confianca - a resposta errada mais perigosa que existe. Agora olha em todos e
+ * diz de qual loja foi cada compra.
+ */
+async function acharClientes(texto) {
+  const procurado = String(texto || '').trim();
+  if (!procurado) return [];
+
+  const { buscarClientePorCodigo, buscarClientePorNome } = await import('../db/clientes.js');
+
+  if (/^\d{1,5}$/.test(procurado)) {
+    const porCodigo = await buscarClientePorCodigo(procurado);
+    if (porCodigo) return [porCodigo];
+  }
+  return buscarClientePorNome(procurado, 25);
+}
+
+/** Como o cliente aparece na resposta: nome + cidade, para dar para diferenciar. */
+const resumirCliente = (c) => ({
+  codigo: c.codigo,
+  nome: c.nome,
+  cidade: [c.cidade, c.uf].filter(Boolean).join('/') || null,
+  cnpj: c.cpfCnpj || null,
+});
+
+/**
+ * Acrescenta o valor do metro quadrado quando faz sentido.
+ * Tapete personalizado e vendido por m2, mas gravado como a peca inteira.
+ */
+function comMetroQuadrado(linha, descricaoDaVenda, nomeDoCadastro) {
+  const conta = porMetroQuadrado(paraNumero(linha.PRECO), descricaoDaVenda, nomeDoCadastro);
+  if (!conta) return {};
+  return {
+    medida: conta.escrito,
+    metrosQuadrados: conta.area,
+    precoPorMetroQuadrado: conta.metroQuadrado,
+  };
 }
 
 // ---------------------------------------------------------------------------
 
-export async function procurarProduto({ termo, quantos = 5 }) {
+export async function procurarProduto({ termo, quantos = 5 }, contexto = {}) {
+  // custo e margem so para quem pode ver no Solus. Antes o dado vinha sempre e a
+  // IA e que deveria "nao mostrar" - confiar nisso e pedir vazamento.
+  const podeVerCusto = !contexto.operador || Boolean(contexto.operador.permissoes?.verCusto);
   const lista = await buscarPorDescricao(String(termo || ''), limitar(quantos, 5));
 
   const digitos = String(termo || '').replace(/\D/g, '');
@@ -77,8 +133,8 @@ export async function procurarProduto({ termo, quantos = 5 }) {
       codigoBarras: p.barras || null,
       estoque: p.estoque,
       precoVenda: p.vendaAtual,
-      precoCusto: p.custoAtual,
-      margem: Number(p.margemAtual.toFixed(1)),
+      precoCusto: podeVerCusto ? p.custoAtual : undefined,
+      margem: podeVerCusto ? Number(p.margemAtual.toFixed(1)) : undefined,
       unidade: p.unidade,
       desativado: p.cancelado,
     })),
@@ -90,32 +146,40 @@ export async function ultimasVendasDoProduto({ termo, quantos = 10 }) {
   const produto = await acharProduto(termo);
   if (!produto) return { encontrou: false, mensagem: `Nao achei o produto "${termo}".` };
 
+  const chaves = chavesDaVenda(produto);
   const linhas = await consultar(
     `SELECT FIRST ${limitar(quantos)}
             I.DATA, I.QTD, I.PRECO, P.NUMERO, P.CODCLIENTE,
+            ${campoTexto('I.DESCRICAO', 70, 'DESCRICAO')},
             ${campoTexto('P.NOMECLI', 50, 'NOMECLI')}, P.STATUS
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
-      WHERE TRIM(I.PRODUTO) = ?
+      WHERE TRIM(I.PRODUTO) IN (${marcadores(chaves)})
         AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
         AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
       ORDER BY I.DATA DESC`,
-    [chaveDoProduto(produto)]
+    chaves
   );
 
   return {
     encontrou: true,
     produto: { codigo: produto.codigo, descricao: produto.descricao, estoque: produto.estoque },
     totalDeVendasListadas: linhas.length,
-    vendas: linhas.map((l) => ({
-      data: dataBR(l.DATA),
-      cliente: lerTexto(l.NOMECLI) || 'CONSUMIDOR',
-      codigoCliente: String(l.CODCLIENTE || '').trim() || null,
-      quantidade: paraNumero(l.QTD),
-      precoUnitario: paraNumero(l.PRECO),
-      pedido: Number(l.NUMERO),
-      situacao: String(l.STATUS || '').trim() || 'aberto',
-    })),
+    vendas: linhas.map((l) => {
+      const comoFoiVendido = lerTexto(l.DESCRICAO) || produto.descricao;
+      return {
+        data: dataBR(l.DATA),
+        cliente: lerTexto(l.NOMECLI) || 'CONSUMIDOR',
+        codigoCliente: String(l.CODCLIENTE || '').trim() || null,
+        // na venda o nome pode vir com a medida daquela peca
+        comoFoiVendido: comoFoiVendido !== produto.descricao ? comoFoiVendido : undefined,
+        quantidade: paraNumero(l.QTD),
+        precoUnitario: paraNumero(l.PRECO),
+        ...comMetroQuadrado(l, comoFoiVendido, produto.descricao),
+        pedido: Number(l.NUMERO),
+        situacao: String(l.STATUS || '').trim() || 'aberto',
+      };
+    }),
   };
 }
 
@@ -242,39 +306,48 @@ export async function comprasDoCliente({ cliente, quantos = 15 }) {
   const texto = String(cliente || '').trim();
   if (!texto) return { encontrou: false, mensagem: 'Diga o nome ou o codigo do cliente.' };
 
-  let codigo = /^\d{1,5}$/.test(texto) ? texto : null;
-  let nome = texto;
+  const cadastros = await acharClientes(texto);
+  if (!cadastros.length) return { encontrou: false, mensagem: `Nao achei o cliente "${texto}".` };
 
-  if (!codigo) {
-    const { buscarClientePorNome } = await import('../db/clientes.js');
-    const achados = await buscarClientePorNome(texto, 1);
-    if (!achados.length) return { encontrou: false, mensagem: `Nao achei o cliente "${texto}".` };
-    codigo = achados[0].codigo;
-    nome = achados[0].nome;
-  }
+  // mesma historia do "Jad": varios CNPJs com o mesmo nome, um por cidade
+  const codigos = cadastros.map((c) => c.codigo).slice(0, 30);
+  const porCodigo = new Map(cadastros.map((c) => [c.codigo, c]));
 
   const linhas = await consultar(
     `SELECT FIRST ${limitar(quantos, 15)}
-            I.DATA, ${campoTexto('I.DESCRICAO', 70, 'DESCRICAO')}, I.QTD, I.PRECO, P.NUMERO
+            I.DATA, ${campoTexto('I.DESCRICAO', 70, 'DESCRICAO')}, I.QTD, I.PRECO,
+            P.NUMERO, P.CODCLIENTE
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
-      WHERE TRIM(P.CODCLIENTE) = ?
+      WHERE TRIM(P.CODCLIENTE) IN (${marcadores(codigos)})
         AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
         AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
       ORDER BY I.DATA DESC`,
-    [codigo]
+    codigos
   );
 
   return {
     encontrou: true,
-    cliente: { codigo, nome },
-    compras: linhas.map((l) => ({
-      data: dataBR(l.DATA),
-      produto: lerTexto(l.DESCRICAO),
-      quantidade: paraNumero(l.QTD),
-      precoPago: paraNumero(l.PRECO),
-      pedido: Number(l.NUMERO),
-    })),
+    cadastrosComEsseNome: cadastros.length,
+    cadastros: cadastros.length > 1 ? cadastros.map(resumirCliente) : undefined,
+    cliente: cadastros.length === 1 ? resumirCliente(cadastros[0]) : undefined,
+    compras: linhas.map((l) => {
+      const codigoCliente = String(l.CODCLIENTE || '').trim();
+      const cadastro = porCodigo.get(codigoCliente);
+      const descricao = lerTexto(l.DESCRICAO);
+      return {
+        data: dataBR(l.DATA),
+        produto: descricao,
+        // com varios cadastros, dizer de qual foi e o que responde a pergunta
+        cliente: cadastros.length > 1
+          ? (cadastro ? resumirCliente(cadastro) : { codigo: codigoCliente })
+          : undefined,
+        quantidade: paraNumero(l.QTD),
+        precoPago: paraNumero(l.PRECO),
+        ...comMetroQuadrado(l, descricao, descricao),
+        pedido: Number(l.NUMERO),
+      };
+    }),
   };
 }
 
@@ -326,6 +399,140 @@ export async function produtosRepetidos({ quantos = 10 }) {
     })),
     observacao: 'Cadastro repetido costuma causar estoque negativo, porque a venda sai'
       + ' por um codigo e a entrada entra em outro. Da para juntar pela tela de entrada de nota.',
+  };
+}
+
+/**
+ * Quanto a loja lucrou num periodo.
+ *
+ * Da para calcular de verdade porque o Solus grava, em CADA item vendido, o
+ * custo que a mercadoria tinha NAQUELE dia (ITEMPEDIDO.PRECOCUSTO). Entao nao e
+ * estimativa em cima do custo de hoje: e o custo real da venda.
+ *
+ * ATENCAO ao que este numero significa: e LUCRO BRUTO (o que vendeu menos o que
+ * a mercadoria custou). Nao desconta imposto, aluguel, folha, cartao, frete nem
+ * despesa nenhuma. Quem le precisa saber disso, senao acha que e o que sobrou.
+ */
+export async function lucroDoPeriodo({ dias = 30, mes = null, ano = null, quantos = 10 }, contexto = {}) {
+  // Quem nao ve custo no Solus nao pode ver lucro nem margem - lucro E custo.
+  // A checagem fica AQUI, e nao so na instrucao da IA: o dado nem chega perto
+  // dela, entao nao tem como escapar numa resposta.
+  if (contexto.operador && !contexto.operador.permissoes?.verCusto) {
+    return {
+      encontrou: false,
+      semPermissao: true,
+      mensagem: 'Esse usuario nao pode ver custo nem margem no Solus, e lucro depende do custo. '
+        + 'Diga isso a pessoa, sem mostrar nenhum numero de lucro.',
+    };
+  }
+
+  const doisDigitos = (n) => String(n).padStart(2, '0');
+
+  let inicio;
+  let fim;
+  let comoChamar;
+
+  if (mes) {
+    const anoUsado = Number(ano) || new Date().getFullYear();
+    const mesUsado = Math.min(Math.max(Number(mes), 1), 12);
+    inicio = `${anoUsado}-${doisDigitos(mesUsado)}-01`;
+    const proximo = mesUsado === 12
+      ? `${anoUsado + 1}-01-01`
+      : `${anoUsado}-${doisDigitos(mesUsado + 1)}-01`;
+    fim = proximo;
+    comoChamar = `${doisDigitos(mesUsado)}/${anoUsado}`;
+  } else {
+    const periodo = Math.min(Math.max(Number(dias) || 30, 1), 730);
+    const de = new Date(Date.now() - periodo * 24 * 3600 * 1000);
+    inicio = `${de.getFullYear()}-${doisDigitos(de.getMonth() + 1)}-${doisDigitos(de.getDate())}`;
+    fim = '9999-12-31';
+    comoChamar = `últimos ${periodo} dias`;
+  }
+
+  const filtro = `I.DATA >= ? AND I.DATA < ?
+      AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
+      AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')`;
+
+  const [total] = await consultar(
+    `SELECT COUNT(DISTINCT P.NUMERO) AS PEDIDOS, COUNT(*) AS ITENS,
+            SUM(I.TOT) AS FATURADO,
+            SUM(I.PRECOCUSTO * I.QTD1) AS CUSTO,
+            SUM(CASE WHEN I.PRECOCUSTO > 0 THEN 0 ELSE 1 END) AS SEM_CUSTO
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE ${filtro}`,
+    [inicio, fim]
+  );
+
+  const faturado = Number(total?.FATURADO) || 0;
+  const custo = Number(total?.CUSTO) || 0;
+  const lucro = faturado - custo;
+  const itens = Number(total?.ITENS) || 0;
+  const semCusto = Number(total?.SEM_CUSTO) || 0;
+
+  if (!faturado) {
+    return { encontrou: false, periodo: comoChamar, mensagem: `Nao achei vendas em ${comoChamar}.` };
+  }
+
+  // o que puxou o lucro para cima
+  const melhores = await consultar(
+    `SELECT FIRST ${limitar(quantos, 10)}
+            ${campoTexto('I.DESCRICAO', 70, 'DESCRICAO')},
+            SUM(I.QTD1) AS QUANTIDADE, SUM(I.TOT) AS FATURADO,
+            SUM(I.TOT - I.PRECOCUSTO * I.QTD1) AS LUCRO
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE ${filtro} AND I.PRECOCUSTO > 0
+      GROUP BY 1
+      ORDER BY 4 DESC`,
+    [inicio, fim]
+  );
+
+  // o que saiu abaixo do custo (isso a pessoa precisa ver)
+  const prejuizo = await consultar(
+    `SELECT FIRST 8 ${campoTexto('I.DESCRICAO', 70, 'DESCRICAO')},
+            SUM(I.QTD1) AS QUANTIDADE, SUM(I.TOT) AS FATURADO,
+            SUM(I.TOT - I.PRECOCUSTO * I.QTD1) AS LUCRO
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE ${filtro} AND I.PRECOCUSTO > 0
+      GROUP BY 1
+      HAVING SUM(I.TOT - I.PRECOCUSTO * I.QTD1) < 0
+      ORDER BY 4 ASC`,
+    [inicio, fim]
+  );
+
+  const arredondar = (v) => Math.round((Number(v) || 0) * 100) / 100;
+
+  return {
+    encontrou: true,
+    periodo: comoChamar,
+    de: inicio,
+    pedidos: Number(total?.PEDIDOS) || 0,
+    itensVendidos: itens,
+    faturado: arredondar(faturado),
+    custoDaMercadoria: arredondar(custo),
+    lucroBruto: arredondar(lucro),
+    margemBruta: Number(((lucro / faturado) * 100).toFixed(1)),
+    // dizer isso e obrigatorio: senao a pessoa acha que e o que sobrou no bolso
+    oQueEsseNumeroE: 'LUCRO BRUTO: o que vendeu menos o que a mercadoria custou. '
+      + 'NAO desconta imposto, aluguel, folha, taxa de cartao nem nenhuma despesa.',
+    itensSemCustoGravado: semCusto,
+    avisoDeConfianca: semCusto
+      ? `${semCusto} de ${itens} itens nao tinham custo gravado na venda e ficaram de fora da conta do custo.`
+      : null,
+    maisLucrativos: melhores.map((l) => ({
+      produto: lerTexto(l.DESCRICAO),
+      quantidade: arredondar(l.QUANTIDADE),
+      faturado: arredondar(l.FATURADO),
+      lucro: arredondar(l.LUCRO),
+    })),
+    vendidosAbaixoDoCusto: prejuizo.map((l) => ({
+      produto: lerTexto(l.DESCRICAO),
+      quantidade: arredondar(l.QUANTIDADE),
+      faturado: arredondar(l.FATURADO),
+      prejuizo: arredondar(l.LUCRO),
+    })),
   };
 }
 
@@ -440,35 +647,37 @@ export async function ultimaVendaParaCliente({ termo, cliente, quantos = 5 }) {
   if (!produto) return { encontrou: false, mensagem: `Nao achei o produto "${termo}".` };
 
   const texto = String(cliente || '').trim();
-  let codigo = /^\d{1,5}$/.test(texto) ? texto : null;
-  let nome = texto;
+  const cadastros = await acharClientes(texto);
+  if (!cadastros.length) return { encontrou: false, mensagem: `Nao achei o cliente "${texto}".` };
 
-  if (!codigo) {
-    const { buscarClientePorNome } = await import('../db/clientes.js');
-    const achados = await buscarClientePorNome(texto, 1);
-    if (!achados.length) return { encontrou: false, mensagem: `Nao achei o cliente "${texto}".` };
-    codigo = achados[0].codigo;
-    nome = achados[0].nome;
-  }
+  // a rede pode ter varios CNPJs com o mesmo nome: procura em TODOS
+  const codigos = cadastros.map((c) => c.codigo).slice(0, 30);
+  const chaves = chavesDaVenda(produto);
 
   const linhas = await consultar(
-    `SELECT FIRST ${limitar(quantos, 5)} I.DATA, I.QTD, I.PRECO, P.NUMERO
+    `SELECT FIRST ${limitar(quantos, 5)} I.DATA, I.QTD, I.PRECO, P.NUMERO, P.CODCLIENTE,
+            ${campoTexto('I.DESCRICAO', 70, 'DESCRICAO')}
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
-      WHERE TRIM(I.PRODUTO) = ? AND TRIM(P.CODCLIENTE) = ?
+      WHERE TRIM(I.PRODUTO) IN (${marcadores(chaves)})
+        AND TRIM(P.CODCLIENTE) IN (${marcadores(codigos)})
         AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
         AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
       ORDER BY I.DATA DESC`,
-    [chaveDoProduto(produto), codigo]
+    [...chaves, ...codigos]
   );
+
+  const porCodigo = new Map(cadastros.map((c) => [c.codigo, c]));
 
   if (!linhas.length) {
     return {
       encontrou: true,
       comprou: false,
       produto: { codigo: produto.codigo, descricao: produto.descricao },
-      cliente: { codigo, nome },
-      mensagem: 'Esse cliente nunca levou esse produto.',
+      cadastrosProcurados: cadastros.map(resumirCliente),
+      mensagem: cadastros.length > 1
+        ? `Procurei nos ${cadastros.length} cadastros com esse nome e nenhum levou esse produto.`
+        : 'Esse cliente nunca levou esse produto.',
       precoDeTabelaHoje: produto.vendaAtual,
     };
   }
@@ -477,13 +686,22 @@ export async function ultimaVendaParaCliente({ termo, cliente, quantos = 5 }) {
     encontrou: true,
     comprou: true,
     produto: { codigo: produto.codigo, descricao: produto.descricao },
-    cliente: { codigo, nome },
+    // quando o nome bate em varios CNPJs, a resposta diz de QUAL deles foi cada compra
+    cadastrosComEsseNome: cadastros.length,
     precoDeTabelaHoje: produto.vendaAtual,
-    vezes: linhas.map((l) => ({
-      data: dataBR(l.DATA),
-      quantidade: paraNumero(l.QTD),
-      precoPago: paraNumero(l.PRECO),
-      pedido: Number(l.NUMERO),
-    })),
+    vezes: linhas.map((l) => {
+      const codigoCliente = String(l.CODCLIENTE || '').trim();
+      const cadastro = porCodigo.get(codigoCliente);
+      const comoFoiVendido = lerTexto(l.DESCRICAO) || produto.descricao;
+      return {
+        data: dataBR(l.DATA),
+        cliente: cadastro ? resumirCliente(cadastro) : { codigo: codigoCliente },
+        comoFoiVendido: comoFoiVendido !== produto.descricao ? comoFoiVendido : undefined,
+        quantidade: paraNumero(l.QTD),
+        precoPago: paraNumero(l.PRECO),
+        ...comMetroQuadrado(l, comoFoiVendido, produto.descricao),
+        pedido: Number(l.NUMERO),
+      };
+    }),
   };
 }

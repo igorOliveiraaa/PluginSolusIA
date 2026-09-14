@@ -410,3 +410,15 @@ export function empresaAtual() {
  * conexao, trava: a leitura fica esperando o commit e o commit fica esperando
  * a leitura terminar.
  */
+
+/**
+ * Tira custo e margem do produto quando quem pediu nao pode ver no Solus.
+ *
+ * A tela ja escondia, mas o dado ia junto na resposta da API - bastava abrir o
+ * navegador para ler. Esconder na tela nao e esconder.
+ */
+export function semCustoParaQuemNaoPodeVer(produtos, podeVerCusto) {
+  if (podeVerCusto) return produtos;
+  const limpar = (p) => ({ ...p, custoAtual: null, custoAnterior: null, margemAtual: null });
+  return Array.isArray(produtos) ? produtos.map(limpar) : (produtos ? limpar(produtos) : produtos);
+}

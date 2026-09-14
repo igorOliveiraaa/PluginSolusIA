@@ -53,13 +53,19 @@ const PADRAO_GLOBAL = {
   },
 };
 
+// O usuario e a senha do Firebird saem do .env quando existir; o que fica aqui e
+// so o padrao de fabrica do proprio Firebird, para a ferramenta conectar de
+// primeira numa instalacao nova. Quem quiser trocar, troca em dados/config.json.
+const USUARIO_FIREBIRD = process.env.SOLUS_USUARIO || 'SYSDBA';
+const SENHA_FIREBIRD = process.env.SOLUS_SENHA || 'masterkey';
+
 const PADRAO_LOJA = {
   banco: {
     host: 'localhost',          // o Firebird roda no proprio PC servidor
     porta: 3050,
     caminho: '',                // escolhido na tela de configuracao das lojas
-    usuario: 'SYSDBA',
-    senha: 'masterkey',
+    usuario: USUARIO_FIREBIRD,
+    senha: SENHA_FIREBIRD,
   },
   notas: {
     // pastas onde o ACBr/Solus salvam o XML e o PDF das notas emitidas, uma por linha.

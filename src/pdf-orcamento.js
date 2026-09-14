@@ -5,6 +5,7 @@
 import PDFDocument from 'pdfkit';
 import { consultar, campoTexto, lerTexto } from './db/firebird.js';
 import { carregarConfig } from './config.js';
+import { lerLogo } from './logo.js';
 
 const CINZA = '#64748b';
 const ESCURO = '#0f172a';
@@ -79,8 +80,25 @@ export async function gerarPdfOrcamento({ orcamento, numero, operador, validadeD
   const largura = doc.page.width - 80;
 
   // ---- cabecalho ----------------------------------------------------------
+  // Com logo cadastrado, ele entra na esquerda e o nome da loja anda para o lado.
+  // Sem logo, fica tudo como era antes.
+  const logo = lerLogo();
+  let inicioTexto = 40;
+
+  if (logo) {
+    try {
+      const CAIXA_LOGO = { largura: 118, altura: 52 };
+      doc.image(logo.dados, 40, 36, { fit: [CAIXA_LOGO.largura, CAIXA_LOGO.altura], align: 'left' });
+      inicioTexto = 40 + CAIXA_LOGO.largura + 14;
+    } catch (erro) {
+      // imagem estranha nao pode derrubar o orcamento inteiro
+      console.error('[logo] nao consegui desenhar no PDF:', erro.message);
+      inicioTexto = 40;
+    }
+  }
+
   doc.fillColor(ESCURO).fontSize(17).font('Helvetica-Bold')
-    .text(loja.nome || 'ORCAMENTO', 40, 40);
+    .text(loja.nome || 'ORCAMENTO', inicioTexto, 40, { width: largura * 0.55, lineBreak: false, ellipsis: true });
 
   const linhasLoja = [
     loja.razao && loja.razao !== loja.nome ? loja.razao : '',
@@ -90,7 +108,7 @@ export async function gerarPdfOrcamento({ orcamento, numero, operador, validadeD
   ].filter(Boolean);
 
   doc.fontSize(8.5).font('Helvetica').fillColor(CINZA);
-  linhasLoja.forEach((linha) => doc.text(linha, 40, doc.y, { width: largura * 0.6 }));
+  linhasLoja.forEach((linha) => doc.text(linha, inicioTexto, doc.y, { width: largura * 0.55 }));
 
   // caixa do numero do orcamento
   doc.fillColor(DESTAQUE).fontSize(13).font('Helvetica-Bold')

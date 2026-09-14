@@ -74,6 +74,9 @@ const CAMINHOS = {
 
   // faisca (IA)
   ia: '<path d="M12 3v3"/><path d="M12 18v3"/><path d="M5.6 5.6 7.8 7.8"/><path d="m16.2 16.2 2.2 2.2"/><path d="M3 12h3"/><path d="M18 12h3"/><path d="M5.6 18.4 7.8 16.2"/><path d="m16.2 7.8 2.2-2.2"/><circle cx="12" cy="12" r="3"/>',
+
+  // imagem (o logo da loja)
+  imagem: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="m3 17 5-5 4 4 3-3 6 6"/>',
 };
 
 /**

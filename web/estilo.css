@@ -1401,3 +1401,150 @@ textarea:focus-visible, select:focus-visible, summary:focus-visible {
   body::before, .topo { animation: none !important; }
   .botao.principal::after { display: none; }
 }
+
+/* ---------------- logo da loja ---------------- */
+
+.area-logo { margin-top: 4px; }
+
+.logo-previa {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  background: rgba(255, 255, 255, .62);
+  border: 1px solid var(--vidro-borda);
+  border-radius: var(--raio-p);
+  padding: 12px 14px;
+}
+
+.logo-previa img {
+  max-width: 170px;
+  max-height: 66px;
+  object-fit: contain;
+  /* o xadrez mostra onde a imagem é transparente, como num editor */
+  background:
+    linear-gradient(45deg, #e6e9f0 25%, transparent 25%, transparent 75%, #e6e9f0 75%),
+    linear-gradient(45deg, #e6e9f0 25%, #fff 25%, #fff 75%, #e6e9f0 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 6px 6px;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.logo-acoes { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+.logo-acoes .botao { flex: 1; min-width: 130px; padding: 9px 12px; font-size: 14px; }
+
+/* ---------------- orçamento montado pelo chat ---------------- */
+
+.orcamento-do-chat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 13px 14px;
+  border-radius: var(--raio-p);
+  background: linear-gradient(135deg, rgba(20, 184, 166, .12), rgba(79, 70, 229, .1));
+  border: 1px solid rgba(20, 184, 166, .3);
+}
+
+.orcamento-do-chat > div { flex: 1 1 200px; min-width: 0; }
+.orcamento-do-chat .botao { padding: 10px 16px; font-size: 14px; }
+.orcamento-do-chat .ajuda { font-size: 12.5px; line-height: 1.45; }
+
+@media (max-width: 560px) {
+  .orcamento-do-chat .botao { width: 100%; }
+}
+
+/* ---------------- etiquetas de prateleira ---------------- */
+
+.cartao-etiquetas {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: var(--raio-p);
+  background: linear-gradient(135deg, rgba(20, 184, 166, .1), rgba(79, 70, 229, .08));
+  border: 1px solid rgba(20, 184, 166, .28);
+}
+
+.cartao-etiquetas > div:first-child { flex: 1 1 230px; min-width: 0; }
+.cartao-etiquetas .ajuda { font-size: 12.5px; line-height: 1.45; }
+
+.etiquetas-acoes { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.etiquetas-acoes .botao { padding: 10px 16px; font-size: 14px; }
+
+.escolha-tamanho {
+  padding: 10px 12px;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  background: rgba(255, 255, 255, .85);
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--texto);
+}
+
+@media (max-width: 560px) {
+  .etiquetas-acoes { width: 100%; }
+  .etiquetas-acoes .escolha-tamanho, .etiquetas-acoes .botao { flex: 1; }
+}
+
+/* ---------------- escolher quais etiquetas imprimir ---------------- */
+
+.escolha-grupo { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+
+.escolha-opcao {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--borda);
+  border-radius: var(--raio-p);
+  background: rgba(255, 255, 255, .6);
+  cursor: pointer;
+  transition: all .2s var(--suave);
+}
+
+.escolha-opcao:hover { border-color: var(--principal-claro); background: #fff; }
+.escolha-opcao:has(input:checked) {
+  border-color: var(--principal-claro);
+  background: linear-gradient(135deg, rgba(20, 184, 166, .1), rgba(79, 70, 229, .07));
+}
+.escolha-opcao input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--principal); }
+.escolha-opcao span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.escolha-opcao em { font-style: normal; font-size: 13px; color: var(--texto-fraco); }
+.escolha-opcao input:disabled + span { opacity: .45; }
+
+.lista-etiquetas {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--borda);
+  border-radius: var(--raio-p);
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, .5);
+}
+
+.linha-etiqueta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--borda);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.linha-etiqueta:last-child { border-bottom: 0; }
+.linha-etiqueta:hover { background: rgba(20, 184, 166, .06); }
+.linha-etiqueta input { width: 17px; height: 17px; accent-color: var(--principal); flex: 0 0 auto; }
+.linha-etiqueta-nome { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linha-etiqueta-preco { flex: 0 0 auto; font-weight: 600; font-size: 13px; white-space: nowrap; }
+.linha-etiqueta-preco s { color: var(--texto-fraco); font-weight: 400; margin-right: 3px; }
+
+@media (max-width: 560px) {
+  .linha-etiqueta { flex-wrap: wrap; }
+  .linha-etiqueta-nome { flex: 1 1 100%; white-space: normal; order: 2; padding-left: 27px; }
+  .linha-etiqueta-preco { order: 3; padding-left: 27px; }
+}

@@ -1,4 +1,7 @@
 // Testa o caminho inteiro pelo servidor, como a tela faz: login -> orcamento -> PDF.
+import { credenciaisDeTeste } from './credenciais-de-teste.mjs';
+
+const LOGIN = credenciaisDeTeste();
 const S = 'http://localhost:3535';
 let token = '';
 let falhas = 0;
@@ -21,10 +24,10 @@ console.log('\n=== 1. Login ===');
 const semLogin = await chamar('/api/produtos?q=sabao');
 conferir('sem login e barrado', semLogin.status === 401);
 
-const errado = await chamar('/api/entrar', { method: 'POST', body: JSON.stringify({ usuario: 'ELAINE', senha: 'xxx' }) });
+const errado = await chamar('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN, senha: "senha-errada-de-proposito" }) });
 conferir('senha errada barrada', errado.status === 401);
 
-const login = await chamar('/api/entrar', { method: 'POST', body: JSON.stringify({ usuario: 'ELAINE', senha: '1304' }) });
+const login = await chamar('/api/entrar', { method: 'POST', body: JSON.stringify(LOGIN) });
 conferir('login com senha certa', login.dados.ok === true, login.dados.operador?.nome);
 token = login.dados.token;
 

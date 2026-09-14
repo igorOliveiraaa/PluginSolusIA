@@ -66,7 +66,7 @@
 
     <label class="campo">
       <span>Um usuário que você usa no Solus <em>(ajuda a achar o certo)</em></span>
-      <input type="text" id="usuario-procurado" placeholder="ex.: ELAINE">
+      <input type="text" id="usuario-procurado" placeholder="ex.: o seu nome no Solus">
     </label>
 
     <button class="botao principal largura-total" id="btn-procurar-solus">Procurar os Solus deste PC</button>
@@ -415,6 +415,12 @@
         <label class="campo"><span>UF</span><input type="text" id="cfg-loja-uf" maxlength="2"></label>
       </div>
       <label class="campo"><span>Telefone</span><input type="text" id="cfg-loja-telefone"></label>
+
+      <div class="campo">
+        <span>Logo da loja <em>(sai no topo do PDF do orçamento)</em></span>
+        <div id="area-logo" class="area-logo"></div>
+        <input type="file" id="arquivo-logo" accept="image/png,image/jpeg" hidden>
+      </div>
     </div>
 
     <div class="cartao">

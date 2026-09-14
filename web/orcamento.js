@@ -200,6 +200,36 @@ $('#btn-montar').addEventListener('click', async () => {
   }
 });
 
+/**
+ * Abre na tela um orçamento que já está montado no servidor.
+ *
+ * É por aqui que entra o orçamento que o assistente montou pelo chat: ele guarda
+ * no servidor e manda só o código; a tela busca e mostra igualzinho ao que veio
+ * de uma foto de lista. Conferir e gravar continua sendo feito aqui.
+ */
+export async function abrirOrcamentoMontado(id) {
+  const { orcamento } = await api('/api/orcamento/' + encodeURIComponent(id));
+
+  estado.orcamento = orcamento;
+  estado.id = id;
+  estado.gravado = null;
+  estado.cliente = orcamento.cliente || null;
+
+  // busca o histórico só para o cartão do cliente não mentir "sem compras anteriores"
+  let compras = [];
+  if (estado.cliente?.codigo) {
+    compras = await api('/api/clientes/' + encodeURIComponent(estado.cliente.codigo))
+      .then((r) => r.compras || [])
+      .catch(() => []);
+  }
+
+  desenharClienteEscolhido(compras);
+  permitirAnimarDeNovo($('#itens-orcamento'));
+  desenharOrcamento();
+  carregarOpcoesDePagamento();
+  mostrarTela('conferir-orcamento');
+}
+
 // ---------------------------------------------------------------------------
 // Conferencia do orcamento
 // ---------------------------------------------------------------------------

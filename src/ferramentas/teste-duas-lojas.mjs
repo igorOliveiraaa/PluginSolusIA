@@ -1,11 +1,22 @@
 // Reproduz a situacao da loja: DOIS Solus no mesmo PC (um por CNPJ), cada um com
 // os seus usuarios. Neste PC de desenvolvimento:
-//   - C:/SolusTeste/EC.FDB               -> ECS LIMPEZA (tem ELAINE / 1304)
-//   - C:/Solus/Solussis/BANCO/BANCO.FDB  -> EDITORA     (tem IGOR)
+//   - C:/SolusTeste/EC.FDB               -> a loja principal
+//   - C:/Solus/Solussis/BANCO/BANCO.FDB  -> a segunda loja
+// Quem entra em cada uma vem de dados/teste.json (fora do Git).
 //
 // Guarda a configuracao atual antes e devolve no fim.
 
 import fs from 'node:fs';
+import { credenciaisDeTeste, credenciaisDaOutraLoja } from './credenciais-de-teste.mjs';
+
+// as senhas nao ficam no codigo: ver credenciais-de-teste.mjs
+const LOGIN = credenciaisDeTeste();
+const LOGIN2 = credenciaisDaOutraLoja();
+if (!LOGIN2) {
+  console.log('\nEste teste precisa TAMBEM de um usuario da segunda loja.');
+  console.log('Ponha em dados/teste.json:  "outraLoja": { "usuario": "...", "senha": "..." }');
+  process.exit(0);
+}
 
 const S = 'http://localhost:3535';
 const CONFIG = 'dados/config.json';
@@ -36,19 +47,19 @@ try {
   conferir('pede para configurar', vazio.dados.precisaConfigurar === true);
   conferir('este PC (o servidor) pode configurar', vazio.dados.podeConfigurar === true);
 
-  const loginSemLoja = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ usuario: 'ELAINE', senha: '1304' }) });
+  const loginSemLoja = await json('/api/entrar', { method: 'POST', body: JSON.stringify(LOGIN) });
   conferir('login sem loja explica o que fazer', /Configurar lojas/.test(loginSemLoja.dados.erro || ''), loginSemLoja.dados.erro);
 
   // ---- 2. procura os Solus ------------------------------------------------
   console.log('\n=== 2. Procurando os Solus deste PC ===');
-  const busca = await json('/api/instalacao/procurar?usuario=ELAINE');
+  const busca = await json('/api/instalacao/procurar?usuario=' + encodeURIComponent(LOGIN.usuario));
   const achados = busca.dados.instalacoes || [];
-  achados.forEach((i) => console.log(`     - ${i.empresa?.fantasia} | ${i.empresa?.cnpj} | tem ELAINE: ${i.temUsuarioProcurado}`));
+  achados.forEach((i) => console.log(`     - ${i.empresa?.fantasia} | ${i.empresa?.cnpj} | tem ${LOGIN.usuario}: ${i.temUsuarioProcurado}`));
   const ecs = achados.find((i) => /EC\.FDB$/i.test(i.caminho));
   const editora = achados.find((i) => /BANCO\.FDB$/i.test(i.caminho));
   conferir('achou os dois Solus', Boolean(ecs && editora), `${achados.length} encontrados em ${busca.dados.segundos}s`);
   conferir('escondeu os bancos internos do Firebird', !achados.some((i) => /security2|help\.fdb/i.test(i.caminho)));
-  conferir('mostra em qual esta a ELAINE', ecs?.temUsuarioProcurado === true && editora?.temUsuarioProcurado === false);
+  conferir('mostra em qual esta o usuario procurado', ecs?.temUsuarioProcurado === true && editora?.temUsuarioProcurado === false);
 
   // ---- 3. salva as duas lojas ---------------------------------------------
   console.log('\n=== 3. Salvando as duas lojas ===');
@@ -79,52 +90,53 @@ try {
 
   // ---- 4. o problema da loja: usuario no Solus errado ---------------------
   console.log('\n=== 4. O mesmo problema que aconteceu na loja ===');
-  const elaineNaEditora = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ usuario: 'ELAINE', senha: '1304', loja: lojaEditora.id }) });
-  conferir('ELAINE na loja errada nao entra', elaineNaEditora.dados.ok === false);
-  conferir('e a mensagem diz para conferir a loja', /loja certa/i.test(elaineNaEditora.dados.erro || ''), elaineNaEditora.dados.erro);
+  const naLojaErrada = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN, loja: lojaEditora.id }) });
+  conferir('o usuario na loja errada nao entra', naLojaErrada.dados.ok === false);
+  conferir('e a mensagem diz para conferir a loja', /loja certa/i.test(naLojaErrada.dados.erro || ''), naLojaErrada.dados.erro);
 
-  const semEscolher = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ usuario: 'ELAINE', senha: '1304' }) });
+  const semEscolher = await json('/api/entrar', { method: 'POST', body: JSON.stringify(LOGIN) });
   conferir('com duas lojas, exige escolher', /Escolha a loja/i.test(semEscolher.dados.erro || ''));
 
   // ---- 5. cada um na sua loja --------------------------------------------
   console.log('\n=== 5. Cada usuario na sua loja ===');
-  const elaine = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ usuario: 'ELAINE', senha: '1304', loja: lojaEcs.id }) });
-  conferir('ELAINE entra na ECS', elaine.dados.ok === true, elaine.dados.operador?.loja?.nome);
-  const admin = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ usuario: 'IGOR', senha: '1605', loja: lojaEditora.id }) });
-  conferir('IGOR entra na Editora', admin.dados.ok === true, admin.dados.operador?.loja?.nome);
+  const principal = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN, loja: lojaEcs.id }) });
+  conferir('entra na loja principal', principal.dados.ok === true, principal.dados.operador?.loja?.nome);
+  const admin = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN2, loja: lojaEditora.id }) });
+  conferir('o outro usuario entra na segunda loja', admin.dados.ok === true, admin.dados.operador?.loja?.nome);
 
   const operadoresEcs = await json('/api/operadores?loja=' + lojaEcs.id);
   const operadoresEditora = await json('/api/operadores?loja=' + lojaEditora.id);
   conferir('lista de usuarios e de cada loja',
-    operadoresEcs.dados.operadores?.includes('ELAINE') && !operadoresEditora.dados.operadores?.includes('ELAINE'),
+    operadoresEcs.dados.operadores?.includes(LOGIN.usuario)
+    && !operadoresEditora.dados.operadores?.includes(LOGIN.usuario),
     `${operadoresEcs.dados.operadores?.length} x ${operadoresEditora.dados.operadores?.length}`);
 
   // ---- 6. os dados nao se misturam ----------------------------------------
   console.log('\n=== 6. Os dados nao se misturam ===');
-  const bancoEcs = await json('/api/testar-banco', {}, elaine.dados.token);
+  const bancoEcs = await json('/api/testar-banco', {}, principal.dados.token);
   const bancoEditora = await json('/api/testar-banco', {}, admin.dados.token);
-  conferir('ELAINE ve os produtos da ECS', bancoEcs.dados.totalProdutos > 10000, `${bancoEcs.dados.totalProdutos} produtos`);
-  conferir('IGOR ve os produtos da Editora', bancoEditora.dados.totalProdutos < 100, `${bancoEditora.dados.totalProdutos} produtos`);
+  conferir('ve os produtos da loja principal', bancoEcs.dados.totalProdutos > 10000, `${bancoEcs.dados.totalProdutos} produtos`);
+  conferir('o outro ve os produtos da segunda loja', bancoEditora.dados.totalProdutos < 100, `${bancoEditora.dados.totalProdutos} produtos`);
 
   // as duas ao mesmo tempo, para garantir que uma requisicao nao pega a loja da outra
   const simultaneas = await Promise.all(Array.from({ length: 10 }, (_, i) =>
-    json('/api/testar-banco', {}, i % 2 ? admin.dados.token : elaine.dados.token)));
+    json('/api/testar-banco', {}, i % 2 ? admin.dados.token : principal.dados.token)));
   const trocou = simultaneas.some((r, i) => (i % 2 ? r.dados.totalProdutos > 100 : r.dados.totalProdutos < 10000));
   conferir('10 consultas ao mesmo tempo, cada uma no seu banco', !trocou && simultaneas.every((r) => r.dados.totalProdutos !== undefined));
 
-  const clientesEcs = await json('/api/clientes?q=JAD', {}, elaine.dados.token);
+  const clientesEcs = await json('/api/clientes?q=JAD', {}, principal.dados.token);
   const clientesEditora = await json('/api/clientes?q=JAD', {}, admin.dados.token);
   conferir('busca de cliente respeita a loja',
     clientesEcs.dados.clientes?.length > 0 && clientesEditora.dados.clientes?.length === 0);
 
-  const ajustesEcs = await json('/api/config', {}, elaine.dados.token);
+  const ajustesEcs = await json('/api/config', {}, principal.dados.token);
   conferir('Ajustes mostra a loja certa', ajustesEcs.dados.config?.lojaNome === 'ECS Limpeza', ajustesEcs.dados.config?.lojaNome);
   conferir('Ajustes nao expoe o caminho do banco', ajustesEcs.dados.config?.banco === undefined);
 
   // um orcamento montado na ECS nao pode ser gravado pela Editora
   const form = new FormData();
   form.append('texto', '2 detergente ype 500ml');
-  const montado = await fetch(S + '/api/orcamento/montar', { method: 'POST', body: form, headers: { 'x-sessao': elaine.dados.token } }).then((r) => r.json());
+  const montado = await fetch(S + '/api/orcamento/montar', { method: 'POST', body: form, headers: { 'x-sessao': principal.dados.token } }).then((r) => r.json());
   const invasao = await json('/api/orcamento/gravar', { method: 'POST', body: JSON.stringify({ id: montado.id }) }, admin.dados.token);
   conferir('orcamento de uma loja nao grava na outra', /outra loja/.test(invasao.dados.erro || ''), invasao.dados.erro);
 

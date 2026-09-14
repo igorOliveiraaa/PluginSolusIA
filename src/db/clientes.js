@@ -5,7 +5,7 @@
 // que e a informacao que falta na hora de montar um orcamento.
 
 import { consultar, emTransacao, paraNumero, paraTextoBR, campoTexto, lerTexto, gravarTexto } from './firebird.js';
-import { colunasDe } from './produtos.js';
+import { colunasDe, tamanhoDaColuna } from './produtos.js';
 import { formatarCnpj } from '../leitura/cnpj.js';
 
 const CAMPOS_CLIENTE = `CODIGO, ${campoTexto('NOME', 50)}, ${campoTexto('FANTASIA', 40)},
@@ -55,6 +55,12 @@ export async function buscarPorDocumento(documento) {
 export async function buscarClientePorCodigo(codigo) {
   const cod = String(codigo || '').trim();
   if (!cod) return null;
+
+  // codigo maior do que o campo do banco nao existe - e mandar assim derruba a
+  // consulta com um erro tecnico em ingles (o mesmo caso de PRODUTO.CODIGO)
+  const cabe = await tamanhoDaColuna('CLIENTES', 'CODIGO');
+  if (cabe && cod.length > cabe) return null;
+
   const linhas = await consultar(
     `SELECT FIRST 1 ${CAMPOS_CLIENTE} FROM CLIENTES WHERE TRIM(CODIGO) = ?`,
     [cod]
@@ -122,6 +128,14 @@ function hoje() {
 export async function cadastrarCliente(dados, operador = '') {
   const documento = String(dados.cpfCnpj || dados.cnpj || '').trim();
   const numeros = documento.replace(/\D/g, '');
+  const nome = String(dados.razaoSocial || dados.nome || '').trim();
+
+  // Sem isto, uma chamada com o corpo vazio criava um cliente EM BRANCO no
+  // Solus - com codigo, ocupando numero, e sem ninguem dentro.
+  if (!nome) throw new Error('O cliente precisa de nome (razao social).');
+  if (numeros.length !== 11 && numeros.length !== 14) {
+    throw new Error('Informe um CPF (11 numeros) ou CNPJ (14 numeros) valido.');
+  }
 
   const existente = await buscarPorDocumento(numeros);
   if (existente) {
@@ -135,7 +149,7 @@ export async function cadastrarCliente(dados, operador = '') {
 
     const valores = {
       CODIGO: codigo,
-      NOME: gravarTexto(String(dados.razaoSocial || dados.nome || '').slice(0, 50)),
+      NOME: gravarTexto(nome.slice(0, 50)),
       FANTASIA: gravarTexto(String(dados.fantasia || '').slice(0, 40)),
       CPFCNPJ: numeros.length === 14 ? formatarCnpj(numeros) : documento.slice(0, 20),
       INSCRICAO: formatarInscricao(dados.inscricaoEstadual || dados.inscricao, dados.uf).slice(0, 20),

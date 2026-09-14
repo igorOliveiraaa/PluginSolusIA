@@ -202,7 +202,7 @@ async function examinarBanco(banco, usuarioProcurado = '') {
 
 /**
  * Procura e examina os Solus do PC.
- * `usuarioProcurado` ajuda a achar o banco certo: "a ELAINE esta neste aqui".
+ * `usuarioProcurado` ajuda a achar o banco certo: "o usuario fulano esta neste aqui".
  */
 export async function procurarInstalacoes({ usuarioProcurado = '', caminhosExtras = [] } = {}) {
   const varredura = varrerDiscos();

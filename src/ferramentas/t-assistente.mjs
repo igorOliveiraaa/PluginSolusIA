@@ -1,7 +1,7 @@
 // Faz perguntas de verdade ao assistente, com o Gemini e o banco de teste.
 import { perguntar } from '../ia/assistente.js';
 
-const operador = { nome: 'ELAINE', permissoes: { verCusto: true } };
+const operador = { nome: 'OPERADOR DE TESTE', permissoes: { verCusto: true } };
 const perguntas = [
   'Quantos produtos ativos a loja tem e quantos estao com estoque negativo?',
   'Para quem vendemos sabao em pedra ype pela ultima vez e por quanto?',

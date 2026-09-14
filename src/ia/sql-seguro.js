@@ -35,8 +35,15 @@ const TABELAS_LIBERADAS = new Set([
 // tabelas com dado sensivel que nunca podem ser lidas por aqui
 const TABELAS_BLOQUEADAS = new Set(['OPERADOR', 'PERMISSAO', 'SYSTEM']);
 
+// Colunas de dinheiro de dentro: custo, margem e lucro. Quem nao ve custo no
+// Solus nao pode buscar isso por SQL - senao bastava pedir "faz uma consulta
+// livre trazendo PRECOCUSTO" para passar por cima da permissao.
+const COLUNAS_DE_CUSTO = [
+  'PRECOCUSTO', 'UPRECOCUSTO', 'CUSTOVENDA', 'MARGEM', 'UPC',
+];
+
 /** Confere a consulta. Devolve o SQL pronto ou explica por que recusou. */
-export function revistar(sqlBruto) {
+export function revistar(sqlBruto, opcoes = {}) {
   const sql = String(sqlBruto || '').trim().replace(/;+\s*$/, '');
 
   if (!sql) return { ok: false, motivo: 'Consulta vazia.' };
@@ -57,6 +64,24 @@ export function revistar(sqlBruto) {
     const regra = new RegExp(`\\b${palavra.replace(' ', '\\s+')}\\b`);
     if (regra.test(maiusculo)) {
       return { ok: false, motivo: `A consulta usa "${palavra}", que nao e permitido aqui.` };
+    }
+  }
+
+  if (opcoes.podeVerCusto === false) {
+    for (const coluna of COLUNAS_DE_CUSTO) {
+      // a barra da regra vai montada como TEXTO: escrita direto num template
+      // literal, "\b" vira o caractere de backspace e a regra nunca casa nada
+      if (new RegExp('\\b' + coluna + '\\b').test(maiusculo)) {
+        return {
+          ok: false,
+          motivo: 'Esse usuario nao pode ver custo nem margem no Solus, entao essa '
+            + 'consulta nao pode trazer ' + coluna + '. Refaca sem essa coluna.',
+        };
+      }
+    }
+    // "PC" sozinho tambem e o custo em texto neste banco ("PCT" nao e)
+    if (new RegExp('\\bPC\\b').test(maiusculo)) {
+      return { ok: false, motivo: 'Esse usuario nao pode ver custo (a coluna PC e o custo).' };
     }
   }
 
@@ -101,8 +126,9 @@ export function revistar(sqlBruto) {
 }
 
 /** Roda a consulta depois de revistada, com tempo maximo. */
-export async function consultaLivre({ sql, explicacao = '' }) {
-  const revista = revistar(sql);
+export async function consultaLivre({ sql, explicacao = '' }, contexto = {}) {
+  const podeVerCusto = !contexto.operador || Boolean(contexto.operador.permissoes?.verCusto);
+  const revista = revistar(sql, { podeVerCusto });
   if (!revista.ok) {
     return { ok: false, erro: revista.motivo, sqlRecusado: sql };
   }

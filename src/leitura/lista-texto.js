@@ -105,7 +105,9 @@ export function lerListaDigitada(texto) {
 
   const itens = linhas
     .map((linha, indice) => lerLinha(linha, indice + 1))
-    .filter((item) => item.descricao.length >= 2);
+    // precisa sobrar NOME de produto: "?????" e "### ..." tem tamanho, mas nao
+    // sao item nenhum - viravam linha no orcamento sem nada para procurar
+    .filter((item) => /[A-Za-zÀ-ÿ]{2}/.test(item.descricao));
 
   return {
     clienteCitado: '',

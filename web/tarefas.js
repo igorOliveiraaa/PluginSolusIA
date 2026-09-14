@@ -83,6 +83,10 @@ function desenhar() {
     if (t.numeroNota && t.acao !== 'enviar-nota') {
       acoes.push(`<button class="botao secundario" data-ver-nota="${t.numeroNota}">${icone('pdf', 17)}<span>Ver a nota</span></button>`);
     }
+    // o XML é o que a contabilidade pede; no Solus ele fica numa tela separada
+    if (t.numeroNota) {
+      acoes.push(`<button class="botao secundario" data-xml-nota="${t.numeroNota}">${icone('baixar', 17)}<span>Baixar XML</span></button>`);
+    }
     if (t.acao !== 'nenhuma') {
       acoes.push(`<button class="botao secundario" data-dispensar="${escapar(t.id)}">Já resolvi</button>`);
     }
@@ -125,9 +129,46 @@ function ligarEventos() {
     botao.addEventListener('click', () => enviarNota(botao.dataset.enviarNota, botao.dataset.pedido));
   });
 
+  document.querySelectorAll('[data-xml-nota]').forEach((botao) => {
+    botao.addEventListener('click', () => baixarXmlDaNota(botao.dataset.xmlNota));
+  });
+
   document.querySelectorAll('[data-enviar-orcamento]').forEach((botao) => {
     botao.addEventListener('click', () => marcarEnviado(botao.dataset.enviarOrcamento, 'orcamento'));
   });
+}
+
+/**
+ * Baixa o XML da nota.
+ *
+ * No Solus, depois de gerar a nota é preciso ir numa OUTRA tela para exportar o
+ * XML. Aqui ele sai com um clique, direto da pasta onde o ACBr já salvou.
+ */
+async function baixarXmlDaNota(numeroNota) {
+  try {
+    const resposta = await fetch(`/api/notas/${numeroNota}/xml`, {
+      headers: { 'x-sessao': sessao.token },
+    });
+
+    if (!resposta.ok) {
+      const erro = await resposta.json().catch(() => ({}));
+      throw new Error(erro.erro
+        || 'Não achei o XML dessa nota. Cadastre em Ajustes a pasta onde o ACBr salva os arquivos.');
+    }
+
+    const blob = await resposta.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `nota-${numeroNota}.xml`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    avisar(`XML da nota ${numeroNota} baixado.`, 'ok');
+  } catch (erro) {
+    avisar(erro.message, 'erro');
+  }
 }
 
 async function pegarPdfDaNota(numeroNota) {

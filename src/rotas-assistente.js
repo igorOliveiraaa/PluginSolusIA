@@ -38,6 +38,8 @@ rotasAssistente.post('/api/perguntar', exigirLogin, async (req, res) => {
       })),
       podeExportar: Boolean(resultado.dadosParaExportar?.linhas?.length),
       quantidadeLinhas: resultado.dadosParaExportar?.linhas?.length || 0,
+      // quando ela montou um orcamento, a tela mostra o botao de abrir
+      orcamentoMontado: resultado.orcamentoMontado || null,
     });
   } catch (erro) {
     console.error('[assistente]', erro.message);

@@ -16,7 +16,11 @@ const ENDERECO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const MODELOS_RESERVA = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
 
 const ESPERAS_MS = [1500, 4000];          // entre as tentativas do mesmo modelo
-const TEMPO_MAXIMO_MS = 90000;            // uma chamada nunca prende a tela mais que isso
+const TEMPO_MAXIMO_MS = 60000;            // uma tentativa sozinha nunca passa disso
+// Teto da chamada inteira. Sem ele, tres modelos x tres tentativas x 60s deixavam
+// a pessoa olhando a tela girar por mais de dez minutos quando o Google estava
+// cheio. Melhor dizer "tente de novo" em dois minutos do que prender o balcao.
+const TEMPO_TOTAL_MS = 120000;
 
 const esperar = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
@@ -93,9 +97,13 @@ export async function chamarGemini(corpo, opcoes = {}) {
 
   let ultimoErro = null;
   let corpoAtual = corpo;
+  const comecou = Date.now();
+  const passouDoTempo = () => Date.now() - comecou > TEMPO_TOTAL_MS;
 
   for (const candidato of candidatos) {
+    if (passouDoTempo()) break;
     for (let tentativa = 0; tentativa <= ESPERAS_MS.length; tentativa += 1) {
+      if (passouDoTempo()) break;
       let resposta;
       try {
         resposta = await fetch(
@@ -111,7 +119,7 @@ export async function chamarGemini(corpo, opcoes = {}) {
         ultimoErro = erro.name === 'TimeoutError'
           ? 'A IA demorou demais para responder.'
           : 'Nao consegui falar com a IA. O PC esta com internet?';
-        if (tentativa < ESPERAS_MS.length) { await esperar(ESPERAS_MS[tentativa]); continue; }
+        if (tentativa < ESPERAS_MS.length && !passouDoTempo()) { await esperar(ESPERAS_MS[tentativa]); continue; }
         break;
       }
 
@@ -151,7 +159,7 @@ export async function chamarGemini(corpo, opcoes = {}) {
         ultimoErro = resposta.status === 429
           ? 'A IA atingiu o limite de uso por agora. Espere um minuto e tente de novo.'
           : 'O servico da IA esta sobrecarregado no momento. Tente de novo em instantes.';
-        if (tentativa < ESPERAS_MS.length) { await esperar(ESPERAS_MS[tentativa]); continue; }
+        if (tentativa < ESPERAS_MS.length && !passouDoTempo()) { await esperar(ESPERAS_MS[tentativa]); continue; }
         break;
       }
 

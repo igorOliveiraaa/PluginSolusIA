@@ -144,6 +144,10 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
     descricao: anterior.descricao,
     antes,
     depois: { estoque: estoqueNovo, custo: custoNovo, venda: vendaNova },
+    // e isto que diz se a etiqueta da prateleira precisa ser trocada
+    vendaAntes: anterior.vendaAtual,
+    vendaDepois: vendaNova,
+    precoMudou: Math.abs((anterior.vendaAtual || 0) - (vendaNova || 0)) >= 0.005,
   };
 }
 
@@ -176,6 +180,9 @@ async function igualarPrecoDoIrmao(executar, colunas, irmao, precoVenda) {
     acao: 'preco-igualado',
     codigo: irmao.codigo,
     descricao: irmao.descricao,
+    vendaAntes: irmao.vendaAtual,
+    vendaDepois: venda,
+    precoMudou: Math.abs((irmao.vendaAtual || 0) - (venda || 0)) >= 0.005,
     antes: {
       PRECOVENDA: irmao.vendaAtual,
       PV: paraTextoBR(irmao.vendaAtual),
@@ -295,6 +302,9 @@ async function criarProduto(executar, colunas, item) {
     descricao: String(item.descricao || '').slice(0, 70),
     antes: null,
     depois: { estoque: quantidade, custo, venda },
+    vendaAntes: null,
+    vendaDepois: venda,
+    precoMudou: true,          // produto novo nunca teve etiqueta
   };
 }
 

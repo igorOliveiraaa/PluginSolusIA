@@ -3,7 +3,10 @@
 //
 // Precisa do servidor no ar (npm start).
 
+import { credenciaisDeTeste } from './credenciais-de-teste.mjs';
+
 const S = 'http://localhost:3535';
+const LOGIN = credenciaisDeTeste();
 let falhas = 0;
 let token = '';
 
@@ -24,7 +27,7 @@ async function json(caminho, opcoes = {}) {
 console.log('\n=== Entrando ===');
 const entrada = await json('/api/entrar', {
   method: 'POST',
-  body: JSON.stringify({ usuario: 'ELAINE', senha: '1304' }),
+  body: JSON.stringify(LOGIN),
 });
 token = entrada.dados.token || '';
 conferir('login', Boolean(token), entrada.dados.operador?.nome || entrada.dados.erro);
@@ -103,7 +106,7 @@ comHistorico.forEach((i) => console.log(
 
 conferir('todo item com produto tem preco de tabela',
   comCliente.dados.orcamento.itens.every((i) => !i.produto || i.precoTabela !== undefined));
-conferir('todo item com produto tem custo (ELAINE ve custo)',
+conferir('todo item com produto tem custo (quem pode ver custo)',
   comCliente.dados.orcamento.itens.every((i) => !i.produto || i.custo !== null));
 conferir('nenhum item sumiu na troca de cliente',
   comCliente.dados.orcamento.itens.length === 3);

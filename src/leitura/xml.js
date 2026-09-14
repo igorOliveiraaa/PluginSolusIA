@@ -159,7 +159,17 @@ export function resolverUnidades({ uCom, qCom, vUnCom, uTrib, qTrib, vUnTrib, de
 
 /** Le o XML da NF-e e devolve a nota no formato que o resto da ferramenta usa. */
 export function lerXmlNfe(conteudoXml) {
-  const arvore = leitor.parse(conteudoXml);
+  let arvore;
+  try {
+    arvore = leitor.parse(conteudoXml);
+  } catch {
+    // o leitor de XML reclama em ingles e com posicao de caractere; ninguem no
+    // balcao entende isso - e quase sempre e arquivo trocado ou incompleto
+    throw new Error(
+      'Esse arquivo esta danificado ou nao e um XML de nota. '
+      + 'Baixe o XML de novo do fornecedor, ou mande o PDF/foto da nota.'
+    );
+  }
 
   const infNFe = achar(arvore, 'infNFe');
   if (!infNFe) {

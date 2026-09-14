@@ -1,10 +1,10 @@
 /* Tela de entrada de nota: ler a nota, conferir item a item e gravar no Solus. */
 
 import {
-  $, $$, dinheiro, escapar, mostrarTela, avisar,
+  $, $$, api, dinheiro, escapar, mostrarTela, avisar,
   animarSeForAPrimeiraVez, permitirAnimarDeNovo,
 } from './comum.js';
-import { icone } from './icones.js';
+import { icone, aplicarIcones } from './icones.js';
 import { abrirConfiguracaoDeLojas } from './login.js';
 
 const estado = {
@@ -730,10 +730,26 @@ function mostrarResultado(resultado) {
         <div class="resumo-rotulo">repetidos desativados</div>
       </div>
     </div>
+    <div class="cartao-etiquetas">
+      <div>
+        <strong>Etiquetas de prateleira</strong>
+        <span class="ajuda" style="display:block;margin:2px 0 0" id="resumo-etiquetas"></span>
+      </div>
+      <div class="etiquetas-acoes">
+        <button class="botao principal" id="btn-etiquetas" data-icone="imprimir">
+          <span>Imprimir etiquetas</span>
+        </button>
+      </div>
+    </div>
+    <div id="escolha-etiquetas" class="escondido"></div>
+
     <p class="ajuda" style="margin-top:14px">
       Se algo entrou errado, você pode desfazer tudo pelo Histórico.
     </p>
-    <button class="botao principal largura-total" id="btn-nova-nota">Lançar outra nota</button>`;
+    <button class="botao secundario largura-total" id="btn-nova-nota">Lançar outra nota</button>`;
+
+  aplicarIcones($('#conteudo-resultado'));
+  ligarEtiquetas(resultado.registros);
 
   $('#btn-nova-nota').addEventListener('click', () => {
     estado.arquivos = [];
@@ -745,6 +761,212 @@ function mostrarResultado(resultado) {
   });
 
   mostrarTela('resultado');
+}
+
+// ---------------------------------------------------------------------------
+// Etiquetas de prateleira
+// ---------------------------------------------------------------------------
+
+/**
+ * Prepara as etiquetas dos produtos que acabaram de entrar.
+ *
+ * É UMA ETIQUETA POR PRODUTO, não por unidade: 20 águas sanitárias de 5L viram
+ * UMA etiqueta da de 5L — e outra, separada, para a de 1L.
+ *
+ * E nem todo produto precisa de etiqueta nova: se o preço continuou o mesmo, a
+ * que está na prateleira ainda serve. Por isso a tela separa os que mudaram de
+ * preço dos que ficaram iguais, e o botão já vem apontando para os que mudaram —
+ * é o que economiza papel adesivo de verdade.
+ */
+let etiquetasDaNota = [];
+
+function ligarEtiquetas(registros) {
+  const botao = $('#btn-etiquetas');
+  if (!botao) return;
+
+  // um por código: o mesmo produto pode aparecer em duas linhas da nota
+  const porCodigo = new Map();
+  for (const registro of registros || []) {
+    if (!registro?.codigo || registro.semAlteracao) continue;
+    if (registro.acao === 'desativado') continue;      // etiqueta de desativado não serve
+    porCodigo.set(String(registro.codigo), {
+      codigo: String(registro.codigo),
+      descricao: registro.descricao || '',
+      novo: registro.acao === 'criado',
+      precoMudou: registro.precoMudou !== false,
+      vendaAntes: registro.vendaAntes,
+      vendaDepois: registro.vendaDepois,
+    });
+  }
+  etiquetasDaNota = [...porCodigo.values()];
+
+  const mudaram = etiquetasDaNota.filter((p) => p.precoMudou).length;
+  const iguais = etiquetasDaNota.length - mudaram;
+
+  $('#resumo-etiquetas').innerHTML = etiquetasDaNota.length
+    ? `${etiquetasDaNota.length} ${etiquetasDaNota.length === 1 ? 'produto' : 'produtos'} na nota · `
+      + `<strong>${mudaram} ${mudaram === 1 ? 'mudou' : 'mudaram'} de preço</strong>`
+      + (iguais ? ` · ${iguais} ${iguais === 1 ? 'continuou' : 'continuaram'} igual` : '')
+    : 'Nenhum produto para etiquetar nesta nota.';
+
+  if (!etiquetasDaNota.length) {
+    botao.disabled = true;
+    return;
+  }
+
+  botao.addEventListener('click', abrirEscolhaDeEtiquetas);
+}
+
+/** A pergunta: imprimir quais? */
+function abrirEscolhaDeEtiquetas() {
+  const area = $('#escolha-etiquetas');
+  const mudaram = etiquetasDaNota.filter((p) => p.precoMudou);
+  const iguais = etiquetasDaNota.filter((p) => !p.precoMudou);
+
+  area.classList.remove('escondido');
+  area.innerHTML = `
+    <div class="cartao">
+      <h2>Quais etiquetas imprimir?</h2>
+      ${iguais.length
+        ? `<p class="ajuda">
+             ${iguais.length} ${iguais.length === 1 ? 'produto continuou' : 'produtos continuaram'}
+             com o mesmo preço — a etiqueta que está na prateleira ainda serve.
+           </p>`
+        : '<p class="ajuda">Todos os produtos mudaram de preço nesta nota.</p>'}
+
+      <div class="escolha-grupo">
+        <label class="escolha-opcao">
+          <input type="radio" name="quais-etiquetas" value="mudaram" ${mudaram.length ? 'checked' : ''}
+                 ${mudaram.length ? '' : 'disabled'}>
+          <span>
+            <strong>Só as que mudaram de preço</strong>
+            <em>${mudaram.length} ${mudaram.length === 1 ? 'etiqueta' : 'etiquetas'} — economiza papel</em>
+          </span>
+        </label>
+        <label class="escolha-opcao">
+          <input type="radio" name="quais-etiquetas" value="todas" ${mudaram.length ? '' : 'checked'}>
+          <span>
+            <strong>Todas da nota</strong>
+            <em>${etiquetasDaNota.length} ${etiquetasDaNota.length === 1 ? 'etiqueta' : 'etiquetas'}</em>
+          </span>
+        </label>
+        <label class="escolha-opcao">
+          <input type="radio" name="quais-etiquetas" value="escolher">
+          <span>
+            <strong>Escolher uma a uma</strong>
+            <em>marque abaixo quais você quer</em>
+          </span>
+        </label>
+      </div>
+
+      <div id="lista-etiquetas" class="lista-etiquetas escondido">
+        ${etiquetasDaNota.map((p, i) => `
+          <label class="linha-etiqueta">
+            <input type="checkbox" data-etiqueta="${i}" ${p.precoMudou ? 'checked' : ''}>
+            <span class="linha-etiqueta-nome">${escapar(p.descricao || 'cód. ' + p.codigo)}</span>
+            <span class="linha-etiqueta-preco">
+              ${p.novo
+                ? '<span class="etiqueta info">novo</span>'
+                : p.precoMudou
+                  ? `<s>${dinheiro(p.vendaAntes)}</s> ${dinheiro(p.vendaDepois)}`
+                  : `${dinheiro(p.vendaDepois)} <span class="etiqueta">não mudou</span>`}
+            </span>
+          </label>`).join('')}
+      </div>
+
+      <label class="campo">
+        <span>Tamanho da etiqueta</span>
+        <select id="tamanho-etiqueta">
+          <option value="padrao">Normal — 24 por folha (6,4 × 3,5 cm)</option>
+          <option value="grande">Grande — 10 por folha (9,6 × 5,6 cm)</option>
+        </select>
+      </label>
+
+      <div id="conta-folhas" class="item-aviso info"></div>
+
+      <div class="item-acoes">
+        <button class="botao secundario" id="btn-cancelar-etiquetas">Cancelar</button>
+        <button class="botao principal" id="btn-gerar-etiquetas" data-icone="imprimir">
+          <span>Gerar e imprimir</span>
+        </button>
+      </div>
+    </div>`;
+
+  aplicarIcones(area);
+
+  const atualizar = () => {
+    const modo = area.querySelector('[name="quais-etiquetas"]:checked')?.value;
+    $('#lista-etiquetas').classList.toggle('escondido', modo !== 'escolher');
+    const escolhidas = etiquetasEscolhidas();
+    const porFolha = $('#tamanho-etiqueta').value === 'grande' ? 10 : 24;
+    const folhas = Math.ceil(escolhidas.length / porFolha) || 0;
+    $('#conta-folhas').textContent = escolhidas.length
+      ? `${escolhidas.length} ${escolhidas.length === 1 ? 'etiqueta' : 'etiquetas'} · `
+        + `${folhas} ${folhas === 1 ? 'folha A4' : 'folhas A4'}`
+      : 'Nenhuma etiqueta escolhida.';
+    $('#btn-gerar-etiquetas').disabled = !escolhidas.length;
+  };
+
+  area.querySelectorAll('[name="quais-etiquetas"]').forEach((r) => r.addEventListener('change', atualizar));
+  area.querySelectorAll('[data-etiqueta]').forEach((c) => c.addEventListener('change', atualizar));
+  $('#tamanho-etiqueta').addEventListener('change', atualizar);
+  $('#btn-cancelar-etiquetas').addEventListener('click', () => area.classList.add('escondido'));
+  $('#btn-gerar-etiquetas').addEventListener('click', () =>
+    imprimirEtiquetas(etiquetasEscolhidas(), $('#tamanho-etiqueta').value));
+
+  atualizar();
+  area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/** O que está marcado agora, conforme a opção escolhida. */
+function etiquetasEscolhidas() {
+  const modo = document.querySelector('[name="quais-etiquetas"]:checked')?.value || 'mudaram';
+  if (modo === 'todas') return etiquetasDaNota.map((p) => ({ codigo: p.codigo }));
+  if (modo === 'mudaram') {
+    return etiquetasDaNota.filter((p) => p.precoMudou).map((p) => ({ codigo: p.codigo }));
+  }
+  return [...document.querySelectorAll('[data-etiqueta]:checked')]
+    .map((c) => ({ codigo: etiquetasDaNota[Number(c.dataset.etiqueta)].codigo }));
+}
+
+async function imprimirEtiquetas(produtos, tamanho = 'padrao') {
+  const botao = $('#btn-gerar-etiquetas');
+  const textoOriginal = botao?.innerHTML;
+  if (botao) { botao.disabled = true; botao.textContent = 'Montando...'; }
+
+  try {
+    const resposta = await fetch('/api/etiquetas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ produtos, tamanho }),
+    });
+
+    if (!resposta.ok) {
+      const erro = await resposta.json().catch(() => ({}));
+      throw new Error(erro.erro || 'Não consegui montar as etiquetas.');
+    }
+
+    const folhas = resposta.headers.get('X-Folhas');
+    const quantas = resposta.headers.get('X-Etiquetas');
+    const blob = await resposta.blob();
+    const url = URL.createObjectURL(blob);
+
+    // abre já na janela de impressão: é para colocar o adesivo e mandar imprimir
+    const janela = window.open(url, '_blank');
+    if (!janela) {
+      avisar('O navegador bloqueou a janela. Libere os pop-ups e tente de novo.', 'erro');
+      return;
+    }
+    janela.addEventListener('load', () => janela.print(), { once: true });
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+    avisar(`${quantas} etiquetas em ${folhas} ${folhas === '1' ? 'folha' : 'folhas'}. `
+      + 'Ponha o papel adesivo na impressora.', 'ok');
+  } catch (erro) {
+    avisar(erro.message, 'erro');
+  } finally {
+    if (botao) { botao.disabled = false; botao.innerHTML = textoOriginal; }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -840,8 +1062,77 @@ async function carregarConfig() {
     const seletor = $('#cfg-modelo-ia');
     seletor.innerHTML = `<option value="${escapar(config.ia.modelo)}">${escapar(config.ia.modelo)}</option>`;
     if (config.ia.temChave) carregarModelos(config.ia.modelo);
+
+    desenharLogo();
   } catch (erro) {
     console.error(erro);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Logo da loja (sai no PDF do orcamento)
+// ---------------------------------------------------------------------------
+
+/**
+ * Mostra a prévia do logo com os botões de trocar e tirar.
+ * O `?v=` no endereço força o navegador a buscar de novo depois de trocar —
+ * sem isso a tela continuaria mostrando o logo antigo.
+ */
+async function desenharLogo() {
+  const area = $('#area-logo');
+  if (!area) return;
+
+  let tem = false;
+  let quando = 0;
+  try {
+    const dados = await api('/api/logo/existe');
+    tem = dados.tem;
+    quando = dados.quando || 0;
+  } catch { /* sem resposta: trata como se não tivesse */ }
+
+  area.innerHTML = tem
+    ? `<div class="logo-previa">
+         <img src="/api/logo?v=${quando}" alt="Logo da loja">
+         <div class="logo-acoes">
+           <button class="botao secundario" id="btn-trocar-logo">Trocar imagem</button>
+           <button class="botao secundario" id="btn-tirar-logo">Tirar o logo</button>
+         </div>
+       </div>`
+    : `<button class="botao secundario largura-total" id="btn-por-logo" data-icone="imagem">
+         <span>Escolher a imagem do logo</span>
+       </button>
+       <p class="ajuda" style="margin:8px 0 0">PNG ou JPG, até 3 MB. Fundo branco ou transparente fica melhor.</p>`;
+
+  aplicarIcones(area);
+  $('#btn-por-logo')?.addEventListener('click', () => $('#arquivo-logo').click());
+  $('#btn-trocar-logo')?.addEventListener('click', () => $('#arquivo-logo').click());
+  $('#btn-tirar-logo')?.addEventListener('click', tirarLogo);
+}
+
+$('#arquivo-logo')?.addEventListener('change', async (evento) => {
+  const arquivo = evento.target.files?.[0];
+  evento.target.value = '';                 // deixa escolher o mesmo arquivo de novo
+  if (!arquivo) return;
+
+  const dados = new FormData();
+  dados.append('logo', arquivo);
+  try {
+    await api('/api/logo', { method: 'POST', body: dados });
+    avisar('Logo salvo. Ele já sai no próximo orçamento.');
+    desenharLogo();
+  } catch (erro) {
+    avisar(erro.message, 'erro');
+  }
+});
+
+async function tirarLogo() {
+  if (!confirm('Tirar o logo? Os orçamentos voltam a sair só com o nome da loja.')) return;
+  try {
+    await api('/api/logo', { method: 'DELETE' });
+    avisar('Logo removido.');
+    desenharLogo();
+  } catch (erro) {
+    avisar(erro.message, 'erro');
   }
 }
 

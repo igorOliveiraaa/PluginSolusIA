@@ -45,6 +45,7 @@ editável pela aba **Ajustes** da própria ferramenta.
 | `src/leitura/gemini.js` | Porta única para o Gemini: tenta de novo e usa modelo reserva |
 | `src/logica/custo.js` | Custo real com frete, IPI, ICMS-ST e crédito de imposto |
 | `src/logica/precos.js` | Margem, preço sugerido e arredondamento |
+| `src/logica/medidas.js` | Lê "3.70 X 2.10" no nome da venda e calcula o preço do m² |
 | `src/logica/conferencia.js` | Junta tudo e monta a tela de conferência |
 | `src/historico.js` | Histórico das notas aplicadas (é o que permite desfazer) |
 | `src/ia/assistente.js` | O assistente: escolhe a consulta e monta a resposta |
@@ -60,12 +61,17 @@ editável pela aba **Ajustes** da própria ferramenta.
 | `src/db/operadores.js` | Login com os usuários do Solus |
 | `src/leitura/cnpj.js` | Consulta de CNPJ na Receita |
 | `src/leitura/lista-texto.js` | Lê lista digitada sem gastar IA |
-| `src/pdf-orcamento.js` | PDF do orçamento |
+| `src/pdf-orcamento.js` | PDF do orçamento (com o logo da loja, quando tem) |
+| `src/logo.js` | O logo de cada loja: guardar, ler e apagar |
+| `src/etiquetas.js` | Folha A4 de etiquetas de prateleira (uma por produto) |
+| `src/orcamentos-abertos.js` | Orçamentos montados e ainda não gravados (a tela e o chat usam o mesmo) |
+| `src/ia/montar-pelo-chat.js` | A única ferramenta do assistente que faz algo: monta orçamento |
 | `src/https-local.js` | Certificado do HTTPS da rede |
 | `web/` | A interface (PWA, funciona no celular e no PC) |
 | `web/icones.js` | Ícones em SVG (sem emoji, sem biblioteca) |
 | `web/instalar.js` | Instalar como aplicativo no celular e no PC |
 | `src/ferramentas/` | Scripts de teste (`varredura.mjs` caça bugs no codigo; `gerar-icones.mjs` refaz os icones) |
+| `src/ferramentas/credenciais-de-teste.mjs` | Usuário/senha dos testes — vem de `dados/teste.json`, nunca do código |
 
 ## O que aprendi do banco do Solus (importante, custou trabalho descobrir)
 
@@ -92,7 +98,7 @@ editável pela aba **Ajustes** da própria ferramenta.
 - O próximo número de pedido vem de `CODVENDA.NUMERO` (não use MAX(NUMERO):
   existe outra faixa de numeração muito mais alta na tabela).
 - `ITEMPEDIDO.PRODUTO` guarda o código de barras (ou o código, quando não tem barras).
-- `OPERADOR` guarda a senha em **texto puro** — é assim que o Solus funciona.
+- O login do Plugin usa a tabela `OPERADOR` do próprio Solus (mesmo usuário e senha).
 - A tabela `EMPRESAS` está vazia neste banco. **O cadastro da empresa está em `PARAMETRO`**
   (RAZAO, FANTASIA, CPFCNPJ) — é por ali que se descobre de qual CNPJ é cada banco.
 - O Solus diz qual banco usa no `BANCO.INI` da pasta do Solus.exe (1ª linha, às vezes
@@ -110,6 +116,15 @@ editável pela aba **Ajustes** da própria ferramenta.
 - Pagamento fica em `PEDIDOS.TIPOVENDA`, com os nomes da tabela `CONDICAO`
   (um deles começa com espaço — gravar exatamente como está lá).
 - Frete: `PEDIDOS.FRETE`, e `TOTALPEDIDO = TOTALITENS + FRETE`.
+- **A mesma rede tem VÁRIOS cadastros de cliente com o mesmo nome**, um por CNPJ/cidade
+  (a JAD tem 21). Consulta que pega só o primeiro responde errado com confiança —
+  todas as consultas por nome de cliente olham em TODOS e dizem de qual cidade foi.
+- **Tapete é vendido por m², mas gravado como a peça**: `ITEMPEDIDO.DESCRICAO` vira
+  "TAPETE PERSONALIZADO KAPAZI 3.70 X 2.10" e `PRECO` é o valor da peça inteira
+  (R$ 2.952,60). O preço do m² sai da divisão pela área — e bate exatamente com o
+  cadastro "... M2". É `logica/medidas.js` que faz essa conta.
+- Em venda de item personalizado a `ITEMPEDIDO.DESCRICAO` NÃO é igual à do cadastro,
+  e às vezes o código da venda nem existe mais em `PRODUTO`.
 
 ## O que aprendi do Gemini
 
@@ -173,7 +188,8 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Avisa sobre estoque insuficiente e produto cancelado.
 - Grava como **STATUS='ORCAMENTO'** em PEDIDOS/ITEMPEDIDO: aparece na tela de
   orçamento do Solus, e a venda/nota é finalizada por lá.
-- Gera PDF, imprime e compartilha no WhatsApp (escolhendo o contato).
+- Gera PDF (com o **logo da loja** no topo, se cadastrado em Ajustes), imprime e
+  compartilha no WhatsApp (escolhendo o contato).
 
 ### 3. Cliente por CNPJ — pronto
 - Digita o CNPJ, busca em base pública e cadastra no Solus.
@@ -196,7 +212,18 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   só, sem tabela de senha, com limite de linhas e tempo. Testado contra 8
   tentativas de comando perigoso — todas barradas.
 - Respeita a permissão de custo: quem não vê custo no Solus não vê aqui.
-- O resultado vira **planilha (CSV) ou PDF** com um clique.
+- O resultado vira **planilha (CSV) ou PDF** com um clique — inclusive quando a
+  pessoa pede "me faz um relatório de X".
+- **Lucro**: pergunta "qual foi meu lucro no mês passado" e ele calcula de verdade,
+  porque `ITEMPEDIDO.PRECOCUSTO` guarda o custo que a mercadoria tinha NO DIA da
+  venda. Devolve faturamento, custo, lucro bruto, margem, o que deu mais lucro e o
+  que saiu **abaixo do custo**. A resposta é obrigada a dizer que é **lucro BRUTO**
+  (sem imposto, aluguel, folha, cartão) — senão o Igor decide em cima do número errado.
+- **Monta orçamento pelo chat**: "monta um orçamento para o Jad de 10 detergente".
+  É a única ferramenta dele que faz algo — e mesmo assim **não grava no Solus**:
+  deixa pronto na aba Orçamento e aparece o botão "Abrir e conferir". Recusa quem
+  não tem permissão de orçamento, e com nome de cliente batendo em vários cadastros
+  ela devolve a lista e pergunta qual é, em vez de escolher.
 
 ### 5. Venda, nota fiscal e tarefas — pronto
 - O orçamento vai para o Solus **com forma de pagamento, frete, entrega e validade**,
@@ -227,12 +254,24 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Config antiga (`banco` solto no topo do config.json) continua valendo como loja
   "principal".
 
-### 8. Login e acesso — pronto
+### 8. Login e permissões — pronto
 - Usa os **mesmos usuários e senhas do Solus** (tabela OPERADOR).
 - Respeita as permissões do Solus (ver custo, mexer em cadastro, fazer orçamento).
 - HTTPS com certificado próprio, para o celular instalar como aplicativo
   e o botão de compartilhar funcionar.
 - Trava de 10 minutos depois de 5 senhas erradas (as senhas do Solus são curtas).
+- **O que grava exige permissão**: lançar nota e desfazer pedem `mexerProduto`
+  (ACESSACADASTRO no Solus); ajustes e logo pedem gerente. Antes qualquer um que
+  entrasse podia reescrever preço e estoque da loja inteira pelo celular.
+- **Custo não vaza**: quem não tem CUSTO marcado no Solus não recebe custo nem
+  margem em NENHUMA resposta da API (a tela escondia, mas o número ia junto no
+  JSON), a consulta de lucro é recusada, e a consulta livre da IA barra as colunas
+  de custo (PRECOCUSTO, MARGEM, PC, UPRECOCUSTO, CUSTOVENDA).
+- Orçamento é liberado para todos **de propósito**: PERMITEORCA está vazio para
+  todo mundo neste Solus, e exigir travaria o balcão.
+- ⚠️ Na loja, só quem é **gerente** (TIPO=G) ou tem "acessa cadastro" consegue
+  lançar nota. A ELAINE é gerente, então segue normal. Se outra pessoa precisar,
+  marque ACESSACADASTRO no usuário dela dentro do Solus.
 
 ### 9. Visual — pronto
 - Vidro fosco, ícones em SVG desenhados no projeto (nenhum emoji, nenhuma
@@ -270,6 +309,29 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - **A mesma pergunta não é paga duas vezes**: respostas ficam guardadas 15 minutos
   (reenviar a mesma foto sai de graça e na hora).
 - O assistente manda só as 6 últimas falas da conversa, não 12.
+
+### 12. Etiquetas de prateleira — pronto
+- Depois de gravar a nota aparece **Imprimir etiquetas**: sai uma folha A4 com o
+  preço novo dos produtos daquela nota, para papel adesivo comum.
+- **Uma etiqueta por PRODUTO, não por unidade** — 20 águas de 5L viram UMA etiqueta
+  da de 5L, e outra separada para a de 1L. É a regra que o Igor deixou clara.
+- Preto e branco, preço grande (o dobro do nome), linhas de corte tracejadas
+  atravessando a folha. Dois tamanhos: 24 por folha (64 x 35 mm) e 10 (96 x 56 mm),
+  que batem com os adesivos picotados comuns.
+- O preço é lido **fresco do cadastro** na hora de imprimir, nunca da tela.
+- Conferido por dentro do PDF (`t-etiquetas-layout.mjs`): posição na grade,
+  tamanho da letra, folga da borda e ausência de cor.
+- **Pergunta o que imprimir antes de gerar**: só as que mudaram de preço (já vem
+  marcado), todas da nota, ou escolher uma a uma. Produto cujo preço não mudou
+  aparece marcado como "não mudou" — a etiqueta da prateleira ainda serve, e não
+  gastar papel adesivo à toa foi pedido expresso.
+- Quem sabe se mudou é o `precoMudou` que `db/gravacao.js` grava em cada registro
+  (produto novo conta sempre como mudou: nunca teve etiqueta).
+
+### 13. XML da nota com um clique — pronto
+- No Solus, exportar o XML exige ir a outra tela depois de gerar a nota. Na aba
+  **Tarefas** agora tem **Baixar XML** ao lado de "Ver a nota" — sai direto da
+  pasta onde o ACBr já salvou (precisa da pasta cadastrada em Ajustes).
 
 ### Pendente
 - **Testar com nota e lista reais da loja** (é o próximo passo).

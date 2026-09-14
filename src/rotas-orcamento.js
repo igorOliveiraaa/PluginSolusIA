@@ -15,12 +15,13 @@ import { lerListaDigitada } from './leitura/lista-texto.js';
 import {
   montarOrcamento, recalcularItem, montarItemComProduto, trocarClienteDoOrcamento, resumir,
 } from './logica/orcamento.js';
-import { buscarPorCodigo, buscarPorDescricao, buscarPorBarras } from './db/produtos.js';
+import {
+  buscarPorCodigo, buscarPorDescricao, buscarPorBarras, semCustoParaQuemNaoPodeVer,
+} from './db/produtos.js';
 import { gravarOrcamento, apagarOrcamento } from './db/orcamento.js';
 import { gerarPdfOrcamento, textoDoWhatsApp, dadosDaLoja } from './pdf-orcamento.js';
 import { acompanharOrcamento } from './tarefas.js';
-
-import { lojaAtualId } from './loja-atual.js';
+import { guardarOrcamento, pegarOrcamento } from './orcamentos-abertos.js';
 
 export const rotas = express.Router();
 
@@ -31,26 +32,15 @@ const upload = multer({
 
 const TIPOS_ACEITOS = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
-// orcamentos em andamento (entre montar e gravar)
-const emAndamento = new Map();
-const DUAS_HORAS = 2 * 60 * 60 * 1000;
+// Os orcamentos em andamento (entre montar e gravar) moram em
+// `orcamentos-abertos.js`, porque o assistente da aba Perguntar tambem monta
+// orcamento e os dois precisam enxergar a mesma lista.
+const guardar = guardarOrcamento;
+const pegar = pegarOrcamento;
 
-function guardar(dados) {
-  const id = Math.random().toString(36).slice(2, 10);
-  // guarda de qual loja e: um orcamento nunca pode ser gravado no banco da outra
-  emAndamento.set(id, { dados, lojaId: lojaAtualId(), criadoEm: Date.now() });
-  for (const [chave, valor] of emAndamento) {
-    if (Date.now() - valor.criadoEm > DUAS_HORAS) emAndamento.delete(chave);
-  }
-  return id;
-}
-
-function pegar(id) {
-  const guardado = emAndamento.get(id);
-  if (!guardado) throw new Error('Esse orcamento expirou. Monte de novo.');
-  if (guardado.lojaId !== lojaAtualId()) throw new Error('Esse orcamento e de outra loja.');
-  return guardado.dados;
-}
+/** Custo e margem so vao na resposta para quem pode ver custo no Solus. */
+const esconderCusto = (produtos, req) =>
+  semCustoParaQuemNaoPodeVer(produtos, Boolean(req.operador?.permissoes?.verCusto));
 
 function erro(res, e, status = 400) {
   console.error('[erro]', e?.message || e);
@@ -339,7 +329,7 @@ rotas.get('/api/orcamento/buscar-produto', exigirLogin, async (req, res) => {
     const digitos = termo.replace(/\D/g, '');
     if (digitos.length >= 8) {
       const porBarras = await buscarPorBarras(digitos);
-      if (porBarras) return res.json({ ok: true, produtos: [porBarras] });
+      if (porBarras) return res.json({ ok: true, produtos: esconderCusto([porBarras], req) });
     }
 
     // com o orcamento aberto, o que esse cliente ja comprou vem na frente
@@ -348,8 +338,23 @@ rotas.get('/api/orcamento/buscar-produto', exigirLogin, async (req, res) => {
       if (req.query.id) preferir = pegar(String(req.query.id)).preferidos || [];
     } catch { /* orcamento expirado: a busca continua, so sem a preferencia */ }
 
-    res.json({ ok: true, produtos: await buscarPorDescricao(termo, 15, { preferir }) });
+    const achados = await buscarPorDescricao(termo, 15, { preferir });
+    res.json({ ok: true, produtos: esconderCusto(achados, req) });
   } catch (e) { erro(res, e); }
+});
+
+/**
+ * Abre um orcamento que ja esta montado na memoria.
+ * E o que liga o assistente a tela: ele monta pelo chat, guarda, e a aba
+ * Orcamento busca por aqui para a pessoa conferir.
+ *
+ * Fica DEPOIS de /api/orcamento/buscar-produto de proposito: o Express casa as
+ * rotas na ordem em que foram escritas, e ":id" pegaria "buscar-produto".
+ */
+rotas.get('/api/orcamento/:id', exigirLogin, (req, res) => {
+  try {
+    res.json({ ok: true, id: req.params.id, orcamento: pegar(req.params.id) });
+  } catch (e) { erro(res, e, 404); }
 });
 
 function recalcularResumo(orcamento) {
