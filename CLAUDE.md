@@ -137,6 +137,11 @@ editável pela aba **Ajustes** da própria ferramenta.
   conversa: os modelos novos mandam `thoughtSignature` e dão 400 se ela sumir.
 - O assistente leva de 10 a 50 segundos por pergunta no plano gratuito
   (com o raciocínio interno desligado ficou perto de 15s).
+- **O modelo `-lite` RECUSA o `thinkingConfig`** e responde só "Request contains an
+  invalid argument". Como o Plugin cai para o lite quando o principal bate o limite
+  do dia, mandar PDF dava erro toda vez — e o erro que aparecia era esse, técnico e
+  sem relação com a causa. Agora o campo nem é enviado para modelos lite, qualquer
+  400 com esse campo repete sem ele, e o erro de LIMITE é o que a pessoa vê.
 - **O que mais gasta não é a resposta, é o "raciocínio interno"** (thinking), cobrado
   como texto gerado. Para leitura de documento com formato fixo ele não ajuda:
   `thinkingConfig: { thinkingBudget: 0 }`. Nem todo modelo aceita o campo — por isso
@@ -189,7 +194,8 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Grava como **STATUS='ORCAMENTO'** em PEDIDOS/ITEMPEDIDO: aparece na tela de
   orçamento do Solus, e a venda/nota é finalizada por lá.
 - Gera PDF (com o **logo da loja** no topo, se cadastrado em Ajustes), imprime e
-  compartilha no WhatsApp (escolhendo o contato).
+  compartilha no WhatsApp (escolhendo o contato) — os botões aparecem **antes de
+  gravar** também: manda para o cliente aprovar e só depois grava no Solus.
 
 ### 3. Cliente por CNPJ — pronto
 - Digita o CNPJ, busca em base pública e cadastra no Solus.
@@ -297,6 +303,12 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   Adicionar à Tela de Início) e acesso por `http://IP` (leva para o endereço
   `https`, porque instalar só funciona em conexão segura).
 - O mesmo assunto aparece na aba **Ajustes**, para quem fechou a faixa.
+- A faixa é **fixa no rodapé, por cima de tudo** (z-index 120). Dentro do `<main>`
+  ela ficava atrás da tela de login — e no celular ninguém via, justamente no
+  primeiro acesso, que é quando se quer instalar.
+- `INICIAR-COM-O-WINDOWS.bat` grava um **.bat na pasta de inicialização**, não um
+  atalho .lnk via PowerShell/COM: criar item de inicialização por COM é padrão de
+  vírus e o antivírus bloqueava ("erro de permissão").
 
 ### 11. Economia de IA — pronto
 - `configEconomica()` em `leitura/gemini.js`: desliga o **"raciocínio interno"**

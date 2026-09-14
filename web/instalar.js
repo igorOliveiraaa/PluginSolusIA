@@ -134,8 +134,12 @@ function conferirOutrosCasos() {
   }
 }
 
-// o Chrome demora um pouco para decidir se da para instalar; por isso a espera
-setTimeout(conferirOutrosCasos, 2500);
+// Acesso por http pelo IP nunca vai poder instalar, entao nao ha o que esperar:
+// avisa na hora. Nos outros casos o Chrome demora um pouco para decidir se da
+// para instalar, e so depois disso vale mostrar alguma coisa.
+const acessoLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+if (location.protocol === 'http:' && !acessoLocal) conferirOutrosCasos();
+else setTimeout(conferirOutrosCasos, 2500);
 
 // ---------------------------------------------------------------------------
 // O mesmo assunto na aba Ajustes, para quem fechou a faixa achar depois

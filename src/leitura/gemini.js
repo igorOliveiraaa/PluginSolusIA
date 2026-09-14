@@ -96,12 +96,21 @@ export async function chamarGemini(corpo, opcoes = {}) {
   }
 
   let ultimoErro = null;
+  let erroQueExplica = null;      // o erro que a pessoa precisa ler, se tudo falhar
   let corpoAtual = corpo;
   const comecou = Date.now();
   const passouDoTempo = () => Date.now() - comecou > TEMPO_TOTAL_MS;
 
   for (const candidato of candidatos) {
     if (passouDoTempo()) break;
+
+    // Cada modelo aceita coisas diferentes. O "lite" nao tem raciocinio interno e
+    // RECUSA o campo que manda desligar ele - com a mensagem generica "Request
+    // contains an invalid argument". Era isso que quebrava o envio de PDF: o
+    // modelo principal batia no limite do dia, caia para o lite, e o lite
+    // recusava a configuracao. A pessoa via um erro tecnico sem pe nem cabeca.
+    corpoAtual = semOQueOModeloNaoAceita(corpo, candidato);
+
     for (let tentativa = 0; tentativa <= ESPERAS_MS.length; tentativa += 1) {
       if (passouDoTempo()) break;
       let resposta;
@@ -138,8 +147,10 @@ export async function chamarGemini(corpo, opcoes = {}) {
       }
 
       // Modelo que nao aceita desligar o "raciocinio interno": tira essa parte e
-      // repete. A conta fica um pouco mais cara, mas a tela nao quebra por isso.
-      if (resposta.status === 400 && /thinking/i.test(detalhe) && corpoAtual.generationConfig?.thinkingConfig) {
+      // repete. Nao da para confiar na mensagem: uns dizem "thinking", o lite so
+      // diz "invalid argument". Entao qualquer 400 com esse campo presente tenta
+      // de novo sem ele. Perde a economia, mas responde.
+      if (resposta.status === 400 && corpoAtual.generationConfig?.thinkingConfig) {
         const { thinkingConfig, ...resto } = corpoAtual.generationConfig;
         corpoAtual = { ...corpoAtual, generationConfig: resto };
         continue;
@@ -156,19 +167,41 @@ export async function chamarGemini(corpo, opcoes = {}) {
 
       // sobrecarga ou limite momentaneo: espera e tenta de novo
       if ([429, 500, 503].includes(resposta.status)) {
-        ultimoErro = resposta.status === 429
-          ? 'A IA atingiu o limite de uso por agora. Espere um minuto e tente de novo.'
-          : 'O servico da IA esta sobrecarregado no momento. Tente de novo em instantes.';
+        // "exceeded your current quota" no plano gratuito costuma ser o limite do
+        // DIA, nao do minuto. Mandar esperar um minuto seria mentira.
+        const limiteDoDia = /quota|exceeded/i.test(detalhe);
+        ultimoErro = resposta.status !== 429
+          ? 'O servico da IA esta sobrecarregado no momento. Tente de novo em instantes.'
+          : limiteDoDia
+            ? 'A conta gratuita da IA bateu o limite de uso de hoje. Ela volta sozinha amanha. '
+              + 'Enquanto isso, digite a lista em vez de mandar foto ou PDF - digitada nao gasta IA.'
+            : 'A IA recebeu pedidos demais em pouco tempo. Espere um minuto e tente de novo.';
+        // limite de uso e o tipo de erro que a pessoa PRECISA ver, mesmo que
+        // depois o modelo reserva falhe por outro motivo qualquer
+        if (resposta.status === 429) erroQueExplica = erroQueExplica || ultimoErro;
         if (tentativa < ESPERAS_MS.length && !passouDoTempo()) { await esperar(ESPERAS_MS[tentativa]); continue; }
         break;
       }
 
-      // qualquer outro erro: nao insiste
-      throw new Error(`A IA nao respondeu (erro ${resposta.status}). ${detalhe}`.trim());
+      // erro que nao da para contornar neste modelo: tenta o reserva antes de desistir
+      ultimoErro = `A IA nao respondeu (erro ${resposta.status}). ${detalhe}`.trim();
+      break;
     }
   }
 
-  throw new Error(ultimoErro || 'A IA nao respondeu agora. Tente de novo em instantes.');
+  throw new Error(erroQueExplica || ultimoErro || 'A IA nao respondeu agora. Tente de novo em instantes.');
+}
+
+/**
+ * Tira da configuracao o que aquele modelo nao aceita.
+ * Hoje e so um caso: os modelos "lite" nao tem raciocinio interno e recusam o
+ * campo que manda desliga-lo. Como eles ja nao gastam com isso, tirar nao custa
+ * nada - e evita a recusa.
+ */
+function semOQueOModeloNaoAceita(corpo, modelo) {
+  if (!/lite/i.test(modelo) || !corpo.generationConfig?.thinkingConfig) return corpo;
+  const { thinkingConfig, ...resto } = corpo.generationConfig;
+  return { ...corpo, generationConfig: resto };
 }
 
 /**

@@ -1253,11 +1253,22 @@ textarea:focus-visible, select:focus-visible, summary:focus-visible {
 
 /* ---------------- convite para instalar o app ---------------- */
 
+/* O convite para instalar fica FIXO no rodapé, por cima de tudo — inclusive da
+   tela de login, que cobre a página inteira. Antes ele ficava dentro do <main>
+   e, no celular, ninguém via: o login estava por cima. E é justamente no login,
+   no primeiro acesso de um aparelho novo, que a pessoa quer instalar. */
 .faixa-instalar {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  z-index: 120;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
+  max-width: 900px;
+  margin: 0 auto;
   background: var(--vidro-forte);
   backdrop-filter: blur(22px) saturate(180%);
   -webkit-backdrop-filter: blur(22px) saturate(180%);
@@ -1265,9 +1276,8 @@ textarea:focus-visible, select:focus-visible, summary:focus-visible {
   border-left: 4px solid var(--principal-claro);
   border-radius: var(--raio);
   padding: 14px 16px;
-  margin-bottom: 14px;
-  box-shadow: var(--sombra);
-  animation: entrar .4s var(--suave);
+  box-shadow: var(--sombra-alta);
+  animation: subir .4s var(--suave);
 }
 
 .instalar-texto { flex: 1 1 240px; font-size: 14px; line-height: 1.5; }

@@ -663,6 +663,13 @@ function lerPagamentoDaTela() {
 // Gravar, PDF e compartilhar
 // ---------------------------------------------------------------------------
 
+// Mandar o orçamento ANTES de gravar: o cliente aprova e só então entra no Solus.
+// São os mesmos botões da tela de depois de gravar — o PDF sai igual, só que
+// ainda sem número de orçamento.
+$('#btn-whats-conferir').addEventListener('click', compartilhar);
+$('#btn-pdf-conferir').addEventListener('click', baixarPdf);
+$('#btn-imprimir-conferir').addEventListener('click', imprimir);
+
 $('#btn-gravar-orcamento').addEventListener('click', async () => {
   const resumo = estado.orcamento.resumo;
   const forcar = resumo.precisamEscolha > 0
