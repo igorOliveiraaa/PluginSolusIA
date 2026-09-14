@@ -1,7 +1,11 @@
 import { buscarClientePorNome, buscarClientePorCodigo, ultimasCompras, ultimoPrecoDoCliente } from '../db/clientes.js';
 
-const achados = await buscarClientePorNome('JAD');
-console.log('Busca por nome "JAD":', achados.length, 'clientes');
+import { clienteParaTeste, termoDeBusca } from './dados-de-teste.mjs';
+
+const doBanco = await clienteParaTeste({ comVariosCadastros: true });
+const procurado = termoDeBusca(doBanco?.nome);
+const achados = await buscarClientePorNome(procurado);
+console.log(`Busca por nome "${procurado}":`, achados.length, 'clientes');
 achados.slice(0, 3).forEach(c => console.log(`  [${c.codigo}] ${c.nome} | ${c.cpfCnpj} | ${c.cidade}/${c.uf}`));
 
 const cliente = await buscarClientePorCodigo('861');

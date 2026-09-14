@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { credenciaisDeTeste } from './credenciais-de-teste.mjs';
+import { clienteParaTeste, termoDeBusca } from './dados-de-teste.mjs';
 
 const S = 'http://localhost:3535';
 const LOGIN = credenciaisDeTeste();
@@ -113,9 +114,12 @@ try {
   console.log('\n=== 3. O assistente montando orcamento pelo chat ===');
   console.log('     (chamada de IA de verdade, demora uns segundos)');
 
-  // pelo CODIGO do cliente, para nao cair na duvida dos varios cadastros "JAD"
+  // pelo CODIGO do cliente, para nao cair na duvida dos varios cadastros do
+  // mesmo nome (o nome sai do banco, nao fica escrito aqui)
   // (o caso ambiguo e testado logo abaixo, de proposito)
-  const clientes = await json('/api/clientes?q=JAD');
+  const doBanco = await clienteParaTeste({ comVariosCadastros: true });
+  const nomeProcurado = termoDeBusca(doBanco?.nome);
+  const clientes = await json('/api/clientes?q=' + encodeURIComponent(nomeProcurado));
   const codigoCliente = clientes.dados.clientes?.[0]?.codigo || '';
   const pedido = `Monta um orcamento para o cliente de codigo ${codigoCliente} `
     + 'com 10 detergente ype 500ml e 2 agua sanitaria 5l';
@@ -159,7 +163,9 @@ try {
   console.log('\n=== 4. Cliente com varios CNPJs: ela pergunta, nao chuta ===');
   const ambiguo = await json('/api/perguntar', {
     method: 'POST',
-    body: JSON.stringify({ pergunta: 'Monta um orcamento para o JAD de 5 detergente ype 500ml' }),
+    body: JSON.stringify({
+      pergunta: `Monta um orcamento para o ${nomeProcurado} de 5 detergente ype 500ml`,
+    }),
   });
   const textoAmbiguo = String(ambiguo.dados.resposta || '');
   conferir('nao montou sozinha com o cliente errado', !ambiguo.dados.orcamentoMontado,

@@ -8,6 +8,7 @@
 
 import fs from 'node:fs';
 import { credenciaisDeTeste, credenciaisDaOutraLoja } from './credenciais-de-teste.mjs';
+import { clienteParaTeste, termoDeBusca } from './dados-de-teste.mjs';
 
 // as senhas nao ficam no codigo: ver credenciais-de-teste.mjs
 const LOGIN = credenciaisDeTeste();
@@ -55,27 +56,27 @@ try {
   const busca = await json('/api/instalacao/procurar?usuario=' + encodeURIComponent(LOGIN.usuario));
   const achados = busca.dados.instalacoes || [];
   achados.forEach((i) => console.log(`     - ${i.empresa?.fantasia} | ${i.empresa?.cnpj} | tem ${LOGIN.usuario}: ${i.temUsuarioProcurado}`));
-  const ecs = achados.find((i) => /EC\.FDB$/i.test(i.caminho));
-  const editora = achados.find((i) => /BANCO\.FDB$/i.test(i.caminho));
-  conferir('achou os dois Solus', Boolean(ecs && editora), `${achados.length} encontrados em ${busca.dados.segundos}s`);
+  const bancoA = achados.find((i) => /EC\.FDB$/i.test(i.caminho));
+  const bancoB = achados.find((i) => /BANCO\.FDB$/i.test(i.caminho));
+  conferir('achou os dois Solus', Boolean(bancoA && bancoB), `${achados.length} encontrados em ${busca.dados.segundos}s`);
   conferir('escondeu os bancos internos do Firebird', !achados.some((i) => /security2|help\.fdb/i.test(i.caminho)));
-  conferir('mostra em qual esta o usuario procurado', ecs?.temUsuarioProcurado === true && editora?.temUsuarioProcurado === false);
+  conferir('mostra em qual esta o usuario procurado', bancoA?.temUsuarioProcurado === true && bancoB?.temUsuarioProcurado === false);
 
   // ---- 3. salva as duas lojas ---------------------------------------------
   console.log('\n=== 3. Salvando as duas lojas ===');
   const salvas = await json('/api/instalacao/lojas', {
     method: 'POST',
     body: JSON.stringify({ lojas: [
-      { nome: 'ECS Limpeza', cnpj: ecs.empresa.cnpj, caminho: ecs.caminho },
-      { nome: 'Editora', cnpj: editora.empresa.cnpj, caminho: editora.caminho },
+      { nome: 'Loja A', cnpj: bancoA.empresa.cnpj, caminho: bancoA.caminho },
+      { nome: 'Loja B', cnpj: bancoB.empresa.cnpj, caminho: bancoB.caminho },
     ] }),
   });
   conferir('salvou', salvas.dados.ok === true, (salvas.dados.lojas || []).map((l) => l.id).join(', ') || salvas.dados.erro);
-  const [lojaEcs, lojaEditora] = salvas.dados.lojas || [];
+  const [lojaA, lojaB] = salvas.dados.lojas || [];
 
   const repetido = await json('/api/instalacao/lojas', {
     method: 'POST',
-    body: JSON.stringify({ lojas: [{ nome: 'A', caminho: ecs.caminho }, { nome: 'B', caminho: ecs.caminho }] }),
+    body: JSON.stringify({ lojas: [{ nome: 'A', caminho: bancoA.caminho }, { nome: 'B', caminho: bancoA.caminho }] }),
   });
   conferir('recusa o mesmo banco duas vezes', repetido.dados.ok === false);
 
@@ -90,7 +91,7 @@ try {
 
   // ---- 4. o problema da loja: usuario no Solus errado ---------------------
   console.log('\n=== 4. O mesmo problema que aconteceu na loja ===');
-  const naLojaErrada = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN, loja: lojaEditora.id }) });
+  const naLojaErrada = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN, loja: lojaB.id }) });
   conferir('o usuario na loja errada nao entra', naLojaErrada.dados.ok === false);
   conferir('e a mensagem diz para conferir a loja', /loja certa/i.test(naLojaErrada.dados.erro || ''), naLojaErrada.dados.erro);
 
@@ -99,24 +100,24 @@ try {
 
   // ---- 5. cada um na sua loja --------------------------------------------
   console.log('\n=== 5. Cada usuario na sua loja ===');
-  const principal = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN, loja: lojaEcs.id }) });
+  const principal = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN, loja: lojaA.id }) });
   conferir('entra na loja principal', principal.dados.ok === true, principal.dados.operador?.loja?.nome);
-  const admin = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN2, loja: lojaEditora.id }) });
+  const admin = await json('/api/entrar', { method: 'POST', body: JSON.stringify({ ...LOGIN2, loja: lojaB.id }) });
   conferir('o outro usuario entra na segunda loja', admin.dados.ok === true, admin.dados.operador?.loja?.nome);
 
-  const operadoresEcs = await json('/api/operadores?loja=' + lojaEcs.id);
-  const operadoresEditora = await json('/api/operadores?loja=' + lojaEditora.id);
+  const operadoresA = await json('/api/operadores?loja=' + lojaA.id);
+  const operadoresB = await json('/api/operadores?loja=' + lojaB.id);
   conferir('lista de usuarios e de cada loja',
-    operadoresEcs.dados.operadores?.includes(LOGIN.usuario)
-    && !operadoresEditora.dados.operadores?.includes(LOGIN.usuario),
-    `${operadoresEcs.dados.operadores?.length} x ${operadoresEditora.dados.operadores?.length}`);
+    operadoresA.dados.operadores?.includes(LOGIN.usuario)
+    && !operadoresB.dados.operadores?.includes(LOGIN.usuario),
+    `${operadoresA.dados.operadores?.length} x ${operadoresB.dados.operadores?.length}`);
 
   // ---- 6. os dados nao se misturam ----------------------------------------
   console.log('\n=== 6. Os dados nao se misturam ===');
-  const bancoEcs = await json('/api/testar-banco', {}, principal.dados.token);
-  const bancoEditora = await json('/api/testar-banco', {}, admin.dados.token);
-  conferir('ve os produtos da loja principal', bancoEcs.dados.totalProdutos > 10000, `${bancoEcs.dados.totalProdutos} produtos`);
-  conferir('o outro ve os produtos da segunda loja', bancoEditora.dados.totalProdutos < 100, `${bancoEditora.dados.totalProdutos} produtos`);
+  const bancoDaA = await json('/api/testar-banco', {}, principal.dados.token);
+  const bancoDaB = await json('/api/testar-banco', {}, admin.dados.token);
+  conferir('ve os produtos da loja principal', bancoDaA.dados.totalProdutos > 10000, `${bancoDaA.dados.totalProdutos} produtos`);
+  conferir('o outro ve os produtos da segunda loja', bancoDaB.dados.totalProdutos < 100, `${bancoDaB.dados.totalProdutos} produtos`);
 
   // as duas ao mesmo tempo, para garantir que uma requisicao nao pega a loja da outra
   const simultaneas = await Promise.all(Array.from({ length: 10 }, (_, i) =>
@@ -124,16 +125,18 @@ try {
   const trocou = simultaneas.some((r, i) => (i % 2 ? r.dados.totalProdutos > 100 : r.dados.totalProdutos < 10000));
   conferir('10 consultas ao mesmo tempo, cada uma no seu banco', !trocou && simultaneas.every((r) => r.dados.totalProdutos !== undefined));
 
-  const clientesEcs = await json('/api/clientes?q=JAD', {}, principal.dados.token);
-  const clientesEditora = await json('/api/clientes?q=JAD', {}, admin.dados.token);
+  // o nome vem do banco da loja principal: nome de cliente nao fica no codigo
+  const alguem = encodeURIComponent(termoDeBusca((await clienteParaTeste())?.nome));
+  const clientesA = await json('/api/clientes?q=' + alguem, {}, principal.dados.token);
+  const clientesB = await json('/api/clientes?q=' + alguem, {}, admin.dados.token);
   conferir('busca de cliente respeita a loja',
-    clientesEcs.dados.clientes?.length > 0 && clientesEditora.dados.clientes?.length === 0);
+    clientesA.dados.clientes?.length > 0 && clientesB.dados.clientes?.length === 0);
 
-  const ajustesEcs = await json('/api/config', {}, principal.dados.token);
-  conferir('Ajustes mostra a loja certa', ajustesEcs.dados.config?.lojaNome === 'ECS Limpeza', ajustesEcs.dados.config?.lojaNome);
-  conferir('Ajustes nao expoe o caminho do banco', ajustesEcs.dados.config?.banco === undefined);
+  const ajustesA = await json('/api/config', {}, principal.dados.token);
+  conferir('Ajustes mostra a loja certa', ajustesA.dados.config?.lojaNome === 'Loja A', ajustesA.dados.config?.lojaNome);
+  conferir('Ajustes nao expoe o caminho do banco', ajustesA.dados.config?.banco === undefined);
 
-  // um orcamento montado na ECS nao pode ser gravado pela Editora
+  // um orcamento montado na loja A nao pode ser gravado pela loja B
   const form = new FormData();
   form.append('texto', '2 detergente ype 500ml');
   const montado = await fetch(S + '/api/orcamento/montar', { method: 'POST', body: form, headers: { 'x-sessao': principal.dados.token } }).then((r) => r.json());
@@ -144,7 +147,7 @@ try {
   console.log('\n=== 7. Protecao da configuracao ===');
   const { ehDoProprioServidor } = await import('../rotas-lojas.js');
   conferir('reconhece o proprio PC', ehDoProprioServidor({ socket: { remoteAddress: '::ffff:127.0.0.1' } }));
-  conferir('recusa um celular do WiFi', !ehDoProprioServidor({ socket: { remoteAddress: '192.168.0.57' } }));
+  conferir('recusa um celular do WiFi', !ehDoProprioServidor({ socket: { remoteAddress: '10.255.255.254' } }));
 } finally {
   fs.writeFileSync(CONFIG, original);
   console.log('\n(configuracao original devolvida)');

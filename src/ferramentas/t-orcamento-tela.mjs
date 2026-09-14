@@ -4,6 +4,7 @@
 // Precisa do servidor no ar (npm start).
 
 import { credenciaisDeTeste } from './credenciais-de-teste.mjs';
+import { clienteParaTeste, termoDeBusca } from './dados-de-teste.mjs';
 
 const S = 'http://localhost:3535';
 const LOGIN = credenciaisDeTeste();
@@ -85,7 +86,9 @@ if (emDuvida >= 0) {
 
 // ---- escolher o cliente DEPOIS ---------------------------------------------
 console.log('\n=== Escolher o cliente com o orcamento ja montado ===');
-const clientes = await json('/api/clientes?q=JAD');
+// o cliente sai do proprio banco: nome de cliente real nao fica escrito no codigo
+const doBanco = await clienteParaTeste({ comVariosCadastros: true });
+const clientes = await json('/api/clientes?q=' + encodeURIComponent(termoDeBusca(doBanco?.nome)));
 const cliente = clientes.dados.clientes?.[0];
 conferir('achei um cliente', Boolean(cliente), cliente?.nome);
 

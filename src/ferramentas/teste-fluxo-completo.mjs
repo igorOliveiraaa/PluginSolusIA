@@ -1,5 +1,6 @@
 // Testa o caminho inteiro pelo servidor, como a tela faz: login -> orcamento -> PDF.
 import { credenciaisDeTeste } from './credenciais-de-teste.mjs';
+import { clienteParaTeste, termoDeBusca } from './dados-de-teste.mjs';
 
 const LOGIN = credenciaisDeTeste();
 const S = 'http://localhost:3535';
@@ -35,7 +36,8 @@ const eu = await chamar('/api/eu');
 conferir('sessao reconhecida', eu.dados.ok === true, 've custo: ' + eu.dados.operador.permissoes.verCusto);
 
 console.log('\n=== 2. Cliente ===');
-const clientes = await chamar('/api/clientes?q=JAD');
+const procurado = termoDeBusca((await clienteParaTeste())?.nome);
+const clientes = await chamar('/api/clientes?q=' + encodeURIComponent(procurado));
 conferir('busca de cliente', clientes.dados.clientes?.length > 0, clientes.dados.clientes?.length + ' achados');
 
 const umCliente = await chamar('/api/clientes/861');

@@ -1,4 +1,4 @@
-// "Monta um orçamento para o Jad de 10 detergente e 2 água sanitária."
+// "Monta um orçamento para o fulano de 10 detergente e 2 água sanitária."
 //
 // Esta é a única ferramenta do assistente que FAZ alguma coisa; todas as outras
 // só leem. Mesmo assim ela **não grava nada no Solus**: monta o orçamento e

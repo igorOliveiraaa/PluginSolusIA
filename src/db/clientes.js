@@ -101,7 +101,8 @@ async function proximoCodigoCliente(executar = consultar) {
 
 /**
  * Escreve a inscricao estadual do jeito que este Solus ja guarda.
- * Em SP o banco tem "209.392.951.110"; a consulta publica devolve so os digitos.
+ * Em SP o banco guarda com pontos ("123.456.789.012"); a consulta publica
+ * devolve so os digitos.
  */
 function formatarInscricao(valor, uf) {
   const texto = String(valor || '').trim();

@@ -309,7 +309,7 @@ export async function comprasDoCliente({ cliente, quantos = 15 }) {
   const cadastros = await acharClientes(texto);
   if (!cadastros.length) return { encontrou: false, mensagem: `Nao achei o cliente "${texto}".` };
 
-  // mesma historia do "Jad": varios CNPJs com o mesmo nome, um por cidade
+  // mesma historia de antes: varios CNPJs com o mesmo nome, um por cidade
   const codigos = cadastros.map((c) => c.codigo).slice(0, 30);
   const porCodigo = new Map(cadastros.map((c) => [c.codigo, c]));
 

@@ -13,7 +13,7 @@ const SUGESTOES = [
   'Para quem vendemos detergente Ypê pela última vez?',
   'Quais produtos estão com estoque negativo?',
   'O que mais vendeu nos últimos 30 dias?',
-  'Quanto o cliente Jad pagou no último pedido?',
+  'Quanto um cliente pagou no último pedido dele?',
   'Quais produtos estão parados há mais de 6 meses?',
   'Como mudou o preço do sabão em pedra?',
   'Quais meus melhores clientes do ano?',

@@ -117,7 +117,7 @@ editável pela aba **Ajustes** da própria ferramenta.
   (um deles começa com espaço — gravar exatamente como está lá).
 - Frete: `PEDIDOS.FRETE`, e `TOTALPEDIDO = TOTALITENS + FRETE`.
 - **A mesma rede tem VÁRIOS cadastros de cliente com o mesmo nome**, um por CNPJ/cidade
-  (a JAD tem 21). Consulta que pega só o primeiro responde errado com confiança —
+  (um cliente da loja tem 21). Consulta que pega só o primeiro responde errado —
   todas as consultas por nome de cliente olham em TODOS e dizem de qual cidade foi.
 - **Tapete é vendido por m², mas gravado como a peça**: `ITEMPEDIDO.DESCRICAO` vira
   "TAPETE PERSONALIZADO KAPAZI 3.70 X 2.10" e `PRECO` é o valor da peça inteira
@@ -199,7 +199,7 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - **Tudo que sai na nota é editável na tela** (IE, rua, número, complemento, bairro,
   cidade, UF, CEP) e a tela avisa o que a Receita não informou — nota sem endereço
   completo é recusada pela Sefaz.
-- A IE é gravada no formato que o Solus usa (em SP, `310.035.324.119`).
+- A IE é gravada no formato que o Solus usa (em SP, `123.456.789.012`).
 - Avisa se o CNPJ já existe e se a empresa não está ATIVA.
 
 ### 4. Assistente que sabe do sistema — pronto
@@ -219,7 +219,7 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   venda. Devolve faturamento, custo, lucro bruto, margem, o que deu mais lucro e o
   que saiu **abaixo do custo**. A resposta é obrigada a dizer que é **lucro BRUTO**
   (sem imposto, aluguel, folha, cartão) — senão quem lê decide em cima do número errado.
-- **Monta orçamento pelo chat**: "monta um orçamento para o Jad de 10 detergente".
+- **Monta orçamento pelo chat**: "monta um orçamento para o fulano de 10 detergente".
   É a única ferramenta dele que faz algo — e mesmo assim **não grava no Solus**:
   deixa pronto na aba Orçamento e aparece o botão "Abrir e conferir". Recusa quem
   não tem permissão de orçamento, e com nome de cliente batendo em vários cadastros

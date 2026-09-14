@@ -2,11 +2,11 @@
 //
 // Ficam aqui, e nao dentro das rotas, porque agora ha dois caminhos que montam
 // orcamento: a aba Orcamento (foto/lista) e o assistente da aba Perguntar
-// ("monta um orcamento para o Jad de 10 detergente"). Os dois precisam guardar
+// ("monta um orcamento para o fulano de 10 detergente"). Os dois precisam guardar
 // no mesmo lugar, senao o que o chat monta a tela de conferencia nao acha.
 //
 // Some sozinho depois de 2 horas. E guarda de qual loja e: um orcamento montado
-// na ECS nunca pode ser gravado no banco da Editora.
+// numa loja nunca pode ser gravado no banco da outra.
 
 import { lojaAtualId } from './loja-atual.js';
 

@@ -36,7 +36,7 @@ function discosDoPC() {
 
 /**
  * Le o BANCO.INI. A primeira linha com conteudo e o caminho do banco, as vezes
- * com o endereco do servidor na frente ("192.168.0.10:C:\SOLUS\...").
+ * com o endereco do servidor na frente ("SERVIDOR:C:\SOLUS\...").
  */
 function lerBancoIni(arquivo) {
   try {

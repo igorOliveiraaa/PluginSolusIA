@@ -8,7 +8,7 @@
 //
 // O arquivo fica assim:
 //   { "ia": {...}, "regras": {...}, "servidor": {...},
-//     "lojas": [ { "id": "ecs", "nome": "ECS LIMPEZA", "banco": {...}, ... } ] }
+//     "lojas": [ { "id": "loja-a", "nome": "LOJA A", "banco": {...}, ... } ] }
 //
 // Arquivos antigos (antes das varias lojas) tinham "banco" solto no topo; eles
 // continuam funcionando como uma loja so, chamada "principal".
@@ -112,7 +112,7 @@ function gravarArquivo(dados) {
   fs.writeFileSync(ARQUIVO, JSON.stringify(dados, null, 2), 'utf8');
 }
 
-/** Transforma um nome em identificador simples: "ECS Limpeza" -> "ecs-limpeza". */
+/** Transforma um nome em identificador simples: "Loja Centro" -> "loja-centro". */
 export function criarIdDaLoja(nome, existentes = []) {
   const base = String(nome || 'loja')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')

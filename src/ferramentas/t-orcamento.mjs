@@ -4,7 +4,7 @@ import { buscarClientePorCodigo } from '../db/clientes.js';
 // simula o que a IA devolveria de uma lista escrita a mao
 const lista = {
   observacoes: '',
-  clienteCitado: 'JAD ZOGHEIB',
+  clienteCitado: '',
   itens: [
     { numero: 1, textoOriginal: '2 saco de lixo grande', descricao: 'saco de lixo', quantidade: 2, unidade: 'pacote', marca: '', tamanho: '100 litros', confianca: 'alta' },
     { numero: 2, textoOriginal: 'detergente ype 500ml x10', descricao: 'detergente', quantidade: 10, unidade: '', marca: 'ype', tamanho: '500ml', confianca: 'alta' },

@@ -11,6 +11,7 @@
 // Precisa do servidor no ar (npm start).
 
 import { credenciaisDeTeste } from './credenciais-de-teste.mjs';
+import { clienteParaTeste, termoDeBusca } from './dados-de-teste.mjs';
 
 const S = 'http://localhost:3535';
 const LOGIN = credenciaisDeTeste();
@@ -187,7 +188,8 @@ aguentou(clienteVazio, 'busca de cliente vazia', `${clienteVazio.dados.clientes?
 
 const clienteInjecao = await json('/api/clientes?q=' + encodeURIComponent("'; DELETE FROM CLIENTES; --"));
 aguentou(clienteInjecao, 'injecao na busca de cliente', `${clienteInjecao.dados.clientes?.length ?? 0} achados`);
-const clientesAindaExistem = await json('/api/clientes?q=JAD');
+const alguemDeVerdade = termoDeBusca((await clienteParaTeste())?.nome);
+const clientesAindaExistem = await json('/api/clientes?q=' + encodeURIComponent(alguemDeVerdade));
 conferir('a tabela CLIENTES continua inteira',
   (clientesAindaExistem.dados.clientes || []).length > 0,
   `${clientesAindaExistem.dados.clientes?.length} clientes`);
