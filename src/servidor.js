@@ -3,6 +3,7 @@
 
 import express from 'express';
 import multer from 'multer';
+import fs from 'node:fs';
 import os from 'node:os';
 import https from 'node:https';
 import path from 'node:path';
@@ -519,8 +520,29 @@ try {
   console.error('        mas o celular nao vai conseguir instalar como aplicativo.');
 }
 
+registrarQueEstaRodando();
 mostrarEnderecos();
 abrirNoNavegador();
+
+/**
+ * Deixa o numero do processo guardado em dados/plugin.pid.
+ *
+ * Rodando em segundo plano nao ha janela preta para fechar, entao o
+ * PARAR-PLUGIN.bat precisa de algum jeito de achar o programa. Pelo nome nao
+ * serve: "node.exe" pode ser outro programa qualquer do PC.
+ */
+function registrarQueEstaRodando() {
+  const arquivo = path.join(PASTAS.dados, 'plugin.pid');
+  try {
+    fs.writeFileSync(arquivo, String(process.pid));
+  } catch { /* sem permissao de escrita: segue sem o arquivo */ }
+
+  const limpar = () => { try { fs.unlinkSync(arquivo); } catch { /* ja sumiu */ } };
+  process.on('exit', limpar);
+  for (const sinal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(sinal, () => { limpar(); process.exit(0); });
+  }
+}
 
 /**
  * Abre o Plugin no navegador deste PC assim que o servidor liga. Junto com o
@@ -530,6 +552,9 @@ function abrirNoNavegador() {
   const cfg = carregarConfig();
   if (cfg.servidor?.abrirNavegador === false || process.platform !== 'win32') return;
   if (process.env.PLUGIN_NAO_ABRIR_NAVEGADOR) return;   // usado pelos testes
+  // em segundo plano nao ha ninguem olhando: abrir o navegador sozinho no boot
+  // do PC servidor so atrapalha quem usa aquela maquina
+  if (process.env.PLUGIN_SEGUNDO_PLANO) return;
   exec(`start "" "http://localhost:${porta}"`, () => { /* sem navegador: segue sem abrir */ });
 }
 
@@ -554,5 +579,8 @@ function mostrarEnderecos() {
     }
   }
   console.log('==================================================');
-  console.log('  Deixe esta janela aberta enquanto usar.\n');
+  console.log(process.env.PLUGIN_SEGUNDO_PLANO
+    ? '  Rodando em segundo plano, sem janela na tela.\n'
+      + '  Para fechar, use o PARAR-PLUGIN.bat.\n'
+    : '  Deixe esta janela aberta enquanto usar.\n');
 }

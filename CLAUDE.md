@@ -19,8 +19,16 @@ Problema que ela resolve: hoje a importação do Solus cadastra "1 caixa" em vez
 npm install          # só na primeira vez  (ou dois cliques em INSTALAR.bat)
 npm start            # sobe o servidor      (ou dois cliques em INICIAR-PLUGIN.bat)
 ```
-`INICIAR-COM-O-WINDOWS.bat` cria o atalho para abrir sozinho quando o PC liga (e o
-navegador abre sozinho no Plugin). `ATUALIZAR-PLUGIN.bat` baixa a versão nova do GitHub.
+**Segundo plano (sem janela preta na tela):** `INICIAR-ESCONDIDO.vbs` sobe o servidor
+escondido, `ABRIR-PLUGIN.bat` abre no navegador (ligando antes, se precisar) e
+`PARAR-PLUGIN.bat` fecha. Só o `.vbs` consegue esconder de verdade: `.bat` sempre
+mostra a janela, no máximo minimizada. Em segundo plano tudo que iria para a tela vai
+para `dados/plugin-log.txt`, o servidor grava o número do processo em `dados/plugin.pid`
+(é assim que o PARAR acha o programa) e não abre o navegador sozinho
+(`PLUGIN_SEGUNDO_PLANO=1`).
+
+`INICIAR-COM-O-WINDOWS.bat` põe um `.vbs` na pasta de inicialização para o Plugin subir
+em segundo plano quando o PC liga. `ATUALIZAR-PLUGIN.bat` baixa a versão nova do GitHub.
 Abre em `http://localhost:3535`. No celular pela rede WiFi da loja, usar o IP que
 aparece no terminal. O PC servidor precisa ficar ligado.
 
@@ -312,9 +320,11 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - A faixa é **fixa no rodapé, por cima de tudo** (z-index 120). Dentro do `<main>`
   ela ficava atrás da tela de login — e no celular ninguém via, justamente no
   primeiro acesso, que é quando se quer instalar.
-- `INICIAR-COM-O-WINDOWS.bat` grava um **.bat na pasta de inicialização**, não um
+- `INICIAR-COM-O-WINDOWS.bat` grava um **.vbs na pasta de inicialização**, não um
   atalho .lnk via PowerShell/COM: criar item de inicialização por COM é padrão de
-  vírus e o antivírus bloqueava ("erro de permissão").
+  vírus e o antivírus bloqueava ("erro de permissão"). O `.vbs` também é o que
+  permite subir **sem janela nenhuma** — testado neste PC: 0 janelas visíveis,
+  servidor respondendo, `PARAR-PLUGIN.bat` fechando pelo `plugin.pid`.
 
 ### 11. Economia de IA — pronto
 - `configEconomica()` em `leitura/gemini.js`: desliga o **"raciocínio interno"**
