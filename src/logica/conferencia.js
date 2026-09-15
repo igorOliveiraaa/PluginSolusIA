@@ -128,7 +128,9 @@ export async function montarConferencia(nota, ajustes = null) {
   return {
     ...nota,
     itens,
-    ajustes: ajustes?.temAjuste ? ajustes : null,
+    // vai para a tela mesmo sem ajuste: a pessoa precisa saber o que foi feito
+    // com o que ela escreveu (inclusive "nao consegui ler")
+    ajustes: ajustes || null,
     resumo: montarResumo(itens, nota),
   };
 }

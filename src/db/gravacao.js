@@ -5,8 +5,11 @@
 //  - tudo dentro de uma transacao: ou grava a nota inteira, ou nao grava nada;
 //  - devolve o "antes" de cada campo para o historico conseguir desfazer.
 
-import { emTransacao, paraNumero, paraTextoBR, gravarTexto } from './firebird.js';
-import { colunasDe, proximoCodigoProduto, empresaAtual } from './produtos.js';
+import { emTransacao, paraNumero, paraTextoBR, gravarTexto, campoTexto, lerTexto } from './firebird.js';
+import { estruturaDe, proximoCodigoProduto, empresaAtual } from './produtos.js';
+import {
+  camposFiscaisDoBanco, oQueFaltaPreencher, padroesParaProdutoNovo,
+} from '../logica/padroes-fiscais.js';
 // depois de gravar, o indice de busca esta velho: produto novo, nome mudado,
 // produto desativado. Aqui ele e esquecido para ser montado de novo na proxima busca.
 import { invalidarCatalogo } from './catalogo.js';
@@ -35,7 +38,10 @@ function dataSolus(data = new Date()) {
  * quantidadeUnidades, custoUnitario, precoVenda e (quando atualizar) o produto.
  */
 export async function aplicarNota({ itens, atualizarEstoque = true }) {
-  const colunas = await colunasDe('PRODUTO');
+  const estrutura = await estruturaDe('PRODUTO');
+  const colunas = estrutura.nomes;
+  // CST, IBS/CBS, "acessa valores"... que o produto precisa ter para vender com nota
+  const camposFiscais = camposFiscaisDoBanco(estrutura);
   const empresa = empresaAtual();
   const campoEstoqueEmpresa = 'ESTOQUEEMP' + empresa;
   const usaEstoqueEmpresa = colunas.has(campoEstoqueEmpresa) && empresa !== '1';
@@ -47,12 +53,13 @@ export async function aplicarNota({ itens, atualizarEstoque = true }) {
       if (item.acao === 'ignorar') continue;
 
       if (item.acao === 'criar') {
-        aplicados.push(await criarProduto(executar, colunas, item));
+        aplicados.push(await criarProduto(executar, colunas, item, camposFiscais));
       } else {
         aplicados.push(await atualizarProduto(executar, colunas, item, {
           atualizarEstoque,
           usaEstoqueEmpresa,
           campoEstoqueEmpresa,
+          camposFiscais,
         }));
 
         // Produtos repetidos (mesmo nome ou mesmo codigo de barras).
@@ -115,6 +122,10 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
     valores.BARRAS = String(item.codigoBarras);
   }
 
+  // campos fiscais vazios recebem o padrao da loja (o que ja tem valor fica)
+  const fiscal = await fiscalQueFalta(executar, codigo, opcoes.camposFiscais);
+  Object.assign(valores, fiscal.preencher);
+
   const { partes, params } = montarAtribuicoes(colunas, valores);
   if (!partes.length) return { codigo, semAlteracao: true };
 
@@ -137,11 +148,14 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
   if (opcoes.usaEstoqueEmpresa) {
     antes[opcoes.campoEstoqueEmpresa] = paraTextoBR(anterior.estoque, 2);
   }
+  // desfazer devolve os campos fiscais ao vazio de antes
+  Object.assign(antes, fiscal.antes);
 
   return {
     acao: 'atualizado',
     codigo,
     descricao: anterior.descricao,
+    fiscalPreenchido: fiscal.nomes,
     antes,
     depois: { estoque: estoqueNovo, custo: custoNovo, venda: vendaNova },
     // e isto que diz se a etiqueta da prateleira precisa ser trocada
@@ -149,6 +163,26 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
     vendaDepois: vendaNova,
     precoMudou: Math.abs((anterior.vendaAtual || 0) - (vendaNova || 0)) >= 0.005,
   };
+}
+
+/** Le os campos fiscais atuais do produto (na mesma transacao) e diz o que falta. */
+async function fiscalQueFalta(executar, codigo, campos) {
+  if (!campos?.length) return { preencher: {}, antes: {}, nomes: [] };
+  const linhas = await executar(
+    `SELECT ${campos.map((c) => campoTexto(c.coluna, 30)).join(', ')}
+       FROM PRODUTO WHERE TRIM(CODIGO) = ?`,
+    [codigo]
+  );
+  const linha = linhas[0];
+  if (!linha) return { preencher: {}, antes: {}, nomes: [] };
+
+  const atual = {};
+  for (const campo of campos) {
+    // o driver devolve o apelido em maiusculo ou minusculo conforme a versao
+    const bruto = linha[campo.coluna] ?? linha[campo.coluna.toLowerCase()];
+    atual[campo.coluna] = bruto === null || bruto === undefined ? null : lerTexto(bruto);
+  }
+  return oQueFaltaPreencher(campos, atual);
 }
 
 /**
@@ -236,7 +270,7 @@ async function desativarProduto(executar, colunas, produto) {
   };
 }
 
-async function criarProduto(executar, colunas, item) {
+async function criarProduto(executar, colunas, item, camposFiscais = []) {
   // usa a MESMA transacao: consultar por fora trava esperando este commit
   const codigo = await proximoCodigoProduto(executar);
   const custo = Number(item.custoUnitario || 0);
@@ -267,7 +301,9 @@ async function criarProduto(executar, colunas, item) {
     ESTOQUEATUAL: paraTextoBR(quantidade, 2),
     ESTOQUETOTAL: paraTextoBR(quantidade, 2),
     ESTOQUEMINIMO: '0,00',
-    ACESSAESTOQUE: 'S',
+    // CST 102, IBS/CBS 000, classificacao 000001, acessa valores S, baixa estoque S:
+    // sem isso o produto novo nao sai em nota de venda
+    ...padroesParaProdutoNovo(camposFiscais),
     // STATUS fica vazio de proposito: no Solus, produto ativo tem STATUS vazio
     // e 'CANCELADO' e o que marca produto desativado.
     ULTIMACOMPRA: dataSolus(),
@@ -300,6 +336,7 @@ async function criarProduto(executar, colunas, item) {
     codigo,
     // guarda o texto legivel (valores.DESCRICAO virou bytes para gravar no banco)
     descricao: String(item.descricao || '').slice(0, 70),
+    fiscalPreenchido: camposFiscais.map((c) => c.nome),
     antes: null,
     depois: { estoque: quantidade, custo, venda },
     vendaAntes: null,
@@ -310,7 +347,7 @@ async function criarProduto(executar, colunas, item) {
 
 /** Desfaz uma aplicacao: devolve cada campo ao valor que estava antes. */
 export async function desfazer(registros) {
-  const colunas = await colunasDe('PRODUTO');
+  const colunas = (await estruturaDe('PRODUTO')).nomes;
   return emTransacao(async (executar) => {
     const desfeitos = [];
     for (const registro of registros) {

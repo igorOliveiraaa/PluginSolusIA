@@ -9,6 +9,7 @@
 
 import crypto from 'node:crypto';
 import { carregarConfig } from '../config.js';
+import { chamarOpenAI, provedorDaIA } from './openai.js';
 
 const ENDERECO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -83,17 +84,27 @@ async function detalheDoErro(resposta) {
  * `corpo` e exatamente o que o Gemini espera (contents, tools, generationConfig...).
  */
 export async function chamarGemini(corpo, opcoes = {}) {
-  const { chave, modelo } = lerChave();
-  // `preferir` deixa cada tarefa pedir o modelo mais barato que da conta dela
-  const primeiro = opcoes.preferir || modelo;
-  const candidatos = [primeiro, ...MODELOS_RESERVA.filter((m) => m !== primeiro)];
-
   const podeLembrar = opcoes.lembrar !== false;
-  const chaveDaLembranca = podeLembrar ? chaveDoPedido(corpo) : '';
+  const provedor = provedorDaIA();
+  const chaveDaLembranca = podeLembrar ? provedor + ':' + chaveDoPedido(corpo) : '';
   if (podeLembrar) {
     const guardado = lembrado(chaveDaLembranca);
     if (guardado) return { ...guardado, veioDaLembranca: true };
   }
+
+  // Chave da OpenAI (ChatGPT): o mesmo pedido vai traduzido para la.
+  // Todo o resto do Plugin nao precisa saber qual IA esta respondendo.
+  if (provedor === 'openai') {
+    const dados = await chamarOpenAI(corpo, opcoes);
+    if (podeLembrar) lembrar(chaveDaLembranca, dados);
+    return dados;
+  }
+
+  const { chave, modelo } = lerChave();
+  // `preferir` deixa cada tarefa pedir o modelo mais barato que da conta dela
+  const preferido = opcoes.preferir === MODELO_ECONOMICO ? 'gemini-flash-lite-latest' : opcoes.preferir;
+  const primeiro = preferido || modelo;
+  const candidatos = [primeiro, ...MODELOS_RESERVA.filter((m) => m !== primeiro)];
 
   let ultimoErro = null;
   let erroQueExplica = null;      // o erro que a pessoa precisa ler, se tudo falhar
@@ -222,8 +233,11 @@ export function configEconomica({ pensar = 0, maximoDeResposta = 4096, ...resto 
   };
 }
 
-/** O modelo mais barato da familia, para tarefa simples (texto curto). */
-export const MODELO_ECONOMICO = 'gemini-flash-lite-latest';
+/**
+ * "O modelo mais barato que da conta", para tarefa simples (texto curto).
+ * E um apelido: cada IA troca pelo seu (gemini-flash-lite / gpt-5.4-nano).
+ */
+export const MODELO_ECONOMICO = 'economico';
 
 /** Junta o texto das partes da primeira resposta. */
 export function textoDaResposta(dados) {

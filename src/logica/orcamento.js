@@ -39,7 +39,11 @@ async function procurarCandidatos(item, preferidos) {
   }
 
   // 2) busca no catalogo, ja com o historico do cliente pesando na ordem
-  const candidatos = await buscarPorDescricao(textoDeBusca(item), 8, { preferir: preferidos });
+  // sugestao automatica: produto parado ha mais de 2 anos nao entra
+  const candidatos = await buscarPorDescricao(textoDeBusca(item), 8, {
+    preferir: preferidos,
+    esconderParados: true,
+  });
   if (!candidatos.length) {
     return { escolhido: null, opcoes: [], certeza: 'nenhuma', comoAchou: 'não encontrado' };
   }
@@ -130,7 +134,10 @@ function avisosDoItem({ produto, quantidade, precoTabela, ultimoDoCliente, confi
 export async function montarItemComProduto({
   base, produto, cliente, mostrarCusto = false, precoUnitario, comoAchou, opcoes,
 }) {
-  const quantidade = Number(base?.quantidade) > 0 ? Number(base.quantidade) : 1;
+  // a quantidade "crua" que a pessoa pediu fica guardada: se o item nasceu sem
+  // produto ("7,77 tapete") e depois virou tapete por m2, a virgula nao se perde
+  const pedida = base?.quantidadePedida ?? base?.quantidade;
+  const quantidade = ajustarQuantidade(pedida, produto, 1);
   const { doCliente, daLoja } = await precosDeReferencia(produto, cliente);
 
   const precoTabela = produto?.vendaAtual || 0;
@@ -147,6 +154,8 @@ export async function montarItemComProduto({
     comoAchou: comoAchou || base?.comoAchou || '',
     precisaEscolher: !produto,
     quantidade,
+    quantidadePedida: pedida,
+    fracionado: vendeFracionado(produto),
     precoUnitario: preco,
     precoTabela,
     custo,
@@ -184,7 +193,7 @@ async function produtosQueOClienteJaLevou(cliente) {
  * Monta o orcamento inteiro.
  * `lista` vem da IA (ou digitada), `cliente` pode ser null (consumidor).
  */
-export async function montarOrcamento({ lista, cliente, mostrarCusto = false }) {
+export async function montarOrcamento({ lista, cliente, nomeCliente = '', mostrarCusto = false }) {
   const { preferidos } = await produtosQueOClienteJaLevou(cliente);
 
   const itens = [];
@@ -204,6 +213,7 @@ export async function montarOrcamento({ lista, cliente, mostrarCusto = false }) 
 
   return {
     cliente,
+    nomeCliente: cliente ? '' : limparNomeLivre(nomeCliente),
     itens,
     preferidos,
     observacoesDaLista: lista.observacoes || '',
@@ -216,8 +226,10 @@ export async function montarOrcamento({ lista, cliente, mostrarCusto = false }) 
  * Troca o cliente de um orcamento ja montado e refaz o historico de preco de
  * todos os itens. E o que faz "escolhi o cliente depois" funcionar.
  */
-export async function trocarClienteDoOrcamento(orcamento, cliente, mostrarCusto = false) {
+export async function trocarClienteDoOrcamento(orcamento, cliente, mostrarCusto = false, nomeCliente = '') {
   orcamento.cliente = cliente || null;
+  // nome sem cadastro so vale quando nao ha cliente do Solus escolhido
+  orcamento.nomeCliente = cliente ? '' : limparNomeLivre(nomeCliente);
   orcamento.preferidos = (await produtosQueOClienteJaLevou(cliente)).preferidos;
 
   for (let i = 0; i < orcamento.itens.length; i += 1) {
@@ -251,8 +263,9 @@ export function resumir(itens) {
 
 /** Recalcula um item quando o operador muda preco ou quantidade. */
 export function recalcularItem(item, { quantidade, precoUnitario, mostrarCusto }) {
-  const pedida = quantidade !== undefined ? Number(quantidade) : item.quantidade;
-  const qtd = Number.isFinite(pedida) && pedida > 0 ? pedida : item.quantidade;
+  const qtd = quantidade !== undefined
+    ? ajustarQuantidade(quantidade, item.produto, item.quantidade)
+    : item.quantidade;
 
   const pedido = precoUnitario !== undefined ? Number(precoUnitario) : item.precoUnitario;
   const preco = Number.isFinite(pedido) && pedido >= 0 ? pedido : item.precoUnitario;
@@ -260,12 +273,62 @@ export function recalcularItem(item, { quantidade, precoUnitario, mostrarCusto }
   return {
     ...item,
     quantidade: qtd,
+    quantidadePedida: qtd,
+    fracionado: vendeFracionado(item.produto),
     precoUnitario: preco,
     total: arredondar(preco * qtd),
     margem: mostrarCusto && item.produto?.custoAtual > 0
       ? ((preco - item.produto.custoAtual) / item.produto.custoAtual) * 100
       : item.margem,
   };
+}
+
+/**
+ * Nome digitado para quem nao tem cadastro ("Dona Maria", "Escola Estadual X").
+ * No Solus o orcamento entra como CONSUMIDOR; o nome sai no PDF, no Excel e no
+ * nome do arquivo - que e o que o cliente ve.
+ */
+export function limparNomeLivre(nome) {
+  return String(nome || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+}
+
+/** O nome que aparece para o cliente: cadastro > nome digitado > CONSUMIDOR. */
+export function nomeDoClienteDoOrcamento(orcamento) {
+  return orcamento?.cliente?.nome || orcamento?.nomeCliente || 'CONSUMIDOR';
+}
+
+/** "orcamento-123-dona-maria.pdf": da para achar o arquivo pelo nome do cliente. */
+export function nomeDoArquivoDoOrcamento(orcamento, extensao) {
+  const nome = nomeDoClienteDoOrcamento(orcamento);
+  const pedaco = nome === 'CONSUMIDOR' ? '' : '-' + nome
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  return `orcamento-${orcamento?.numero || 'sem-numero'}${pedaco}.${extensao}`;
+}
+
+// Unidades em que a loja vende pedaco: tapete por m2, mangueira por metro,
+// produto a granel por litro ou quilo. So essas aceitam quantidade com virgula.
+const UNIDADES_FRACIONADAS = new Set(['M2', 'M²', 'M', 'MT', 'MTS', 'METRO', 'KG', 'G', 'GR', 'L', 'LT', 'LTS', 'ML']);
+
+/** O produto e vendido em pedaco (m², metro, kg, litro)? */
+export function vendeFracionado(produto) {
+  if (!produto) return false;
+  const unidade = String(produto.unidade || '').toUpperCase().trim();
+  if (UNIDADES_FRACIONADAS.has(unidade)) return true;
+  // o tapete personalizado costuma estar como UN, mas com "M2" no nome
+  return /(^|\s)M2(\s|$)|M²/.test(String(produto.descricao || '').toUpperCase());
+}
+
+/**
+ * Quantidade do orcamento: numero inteiro (1, 2, 10), porque a loja vende por
+ * unidade - "2,5 detergentes" nao existe. A excecao e o que se vende em pedaco.
+ * Valor invalido (vazio, negativo, "dez") mantem o `reserva`.
+ */
+export function ajustarQuantidade(valor, produto, reserva = 1) {
+  const numero = Number(String(valor ?? '').replace(',', '.'));
+  if (!Number.isFinite(numero) || numero <= 0) return reserva;
+  if (vendeFracionado(produto)) return Math.round(numero * 100) / 100;
+  return Math.max(1, Math.round(numero));
 }
 
 /** Procura um produto pelo codigo, aceitando tambem codigo de barras. */

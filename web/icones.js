@@ -75,6 +75,24 @@ const CAMINHOS = {
   // faisca (IA)
   ia: '<path d="M12 3v3"/><path d="M12 18v3"/><path d="M5.6 5.6 7.8 7.8"/><path d="m16.2 16.2 2.2 2.2"/><path d="M3 12h3"/><path d="M18 12h3"/><path d="M5.6 18.4 7.8 16.2"/><path d="m16.2 7.8 2.2-2.2"/><circle cx="12" cy="12" r="3"/>',
 
+  // calculadora (o que o sistema calculou)
+  calculadora: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8"/><path d="M8 11h.01"/><path d="M12 11h.01"/><path d="M16 11h.01"/><path d="M8 15h.01"/><path d="M12 15h.01"/><path d="M16 15v3"/><path d="M8 18h4"/>',
+
+  // recibo (orcamento)
+  recibo: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6"/><path d="M9 12h6"/><path d="M9 16h3"/>',
+
+  // lista com tique (tarefas)
+  tarefas: '<path d="m4 6 1.5 1.5L8 5"/><path d="m4 12 1.5 1.5L8 11"/><path d="m4 18 1.5 1.5L8 17"/><path d="M11 6h9"/><path d="M11 12h9"/><path d="M11 18h9"/>',
+
+  // porta com seta (sair)
+  sair: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+
+  // loja (fachada)
+  loja: '<path d="M3 9 4.5 4h15L21 9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/><path d="M5 12v8h14v-8"/><path d="M10 20v-5h4v5"/>',
+
+  // seta para a direita (abrir o menu)
+  seta: '<path d="m9 6 6 6-6 6"/>',
+
   // imagem (o logo da loja)
   imagem: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.8"/><path d="m3 17 5-5 4 4 3-3 6 6"/>',
 };

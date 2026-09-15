@@ -94,22 +94,32 @@
   </div>
 </section>
 
+<!-- No PC o menu fica recolhido na lateral (so os icones) e abre quando o mouse
+     passa por cima. No celular vira a barra de abas no topo. -->
 <header class="topo">
   <div class="topo-titulo">
-    <strong>Plugin IA Solus</strong>
-    <span class="topo-direita">
-      <span id="quem-entrou" class="topo-sub"></span>
-      <button id="btn-sair" class="botao-texto" title="Sair">sair</button>
-    </span>
+    <div class="marca">
+      <span class="marca-caixa">
+        <img id="marca-logo" alt="Logo da loja" hidden>
+        <span id="marca-icone" class="marca-icone" data-icone="loja" data-icone-tamanho="24"></span>
+      </span>
+      <span class="marca-texto">
+        <strong id="marca-nome">Plugin IA Solus</strong>
+        <span id="quem-entrou" class="topo-sub"></span>
+      </span>
+    </div>
+    <button id="btn-sair" class="botao-sair" title="Sair" aria-label="Sair" data-icone="sair" data-icone-tamanho="19">
+      <span class="aba-rotulo">Sair</span>
+    </button>
   </div>
-  <nav class="abas">
-    <button class="aba ativa" data-tela="assistente">Perguntar</button>
-    <button class="aba" data-tela="enviar">Nota</button>
-    <button class="aba" data-tela="orcamento">Orçamento</button>
-    <button class="aba" data-tela="cliente">Cliente</button>
-    <button class="aba" data-tela="tarefas">Tarefas</button>
-    <button class="aba" data-tela="historico">Histórico</button>
-    <button class="aba" data-tela="config">Ajustes</button>
+  <nav class="abas" aria-label="Menu">
+    <button class="aba ativa" data-tela="assistente" data-icone="conversa" data-icone-tamanho="21" title="Perguntar"><span class="aba-rotulo">Perguntar</span></button>
+    <button class="aba" data-tela="enviar" data-icone="documento" data-icone-tamanho="21" title="Nota"><span class="aba-rotulo">Nota</span></button>
+    <button class="aba" data-tela="orcamento" data-icone="recibo" data-icone-tamanho="21" title="Orçamento"><span class="aba-rotulo">Orçamento</span></button>
+    <button class="aba" data-tela="cliente" data-icone="pessoa" data-icone-tamanho="21" title="Cliente"><span class="aba-rotulo">Cliente</span></button>
+    <button class="aba" data-tela="tarefas" data-icone="tarefas" data-icone-tamanho="21" title="Tarefas"><span class="aba-rotulo">Tarefas</span></button>
+    <button class="aba" data-tela="historico" data-icone="relogio" data-icone-tamanho="21" title="Histórico"><span class="aba-rotulo">Histórico</span></button>
+    <button class="aba" data-tela="config" data-icone="ajustes" data-icone-tamanho="21" title="Ajustes"><span class="aba-rotulo">Ajustes</span></button>
   </nav>
 </header>
 
@@ -117,6 +127,9 @@
 
   <!-- convite para instalar o app (aparece so quando da para instalar) -->
   <div id="faixa-instalar" class="faixa-instalar escondido"></div>
+
+  <!-- aparece so quando acaba o credito da IA (ver aviso-ia.js) -->
+  <div id="faixa-credito" class="faixa-credito escondido" role="alert"></div>
 
   <!-- ===================== ASSISTENTE ===================== -->
   <section id="tela-assistente" class="tela ativa">
@@ -137,7 +150,7 @@
         placeholder="Pergunte qualquer coisa sobre a loja..."></textarea>
       <button id="btn-perguntar" class="botao principal" title="Perguntar" aria-label="Perguntar" data-icone="enviar"></button>
     </div>
-    <button id="btn-limpar-conversa" class="botao-texto-cinza">limpar conversa</button>
+    <button id="btn-limpar-conversa" class="botao-nova-conversa" data-icone="mais"><span>Nova conversa</span></button>
   </section>
 
   <!-- ===================== ENTRADA DE NOTA ===================== -->
@@ -153,7 +166,7 @@
         <div class="area-icone" data-icone="documento" data-icone-tamanho="34"></div>
         <div class="area-texto">
           <strong>Toque para escolher</strong>
-          <span>ou arraste o arquivo aqui</span>
+          <span>arraste o arquivo aqui ou cole com <kbd>Ctrl</kbd>+<kbd>V</kbd></span>
         </div>
         <input type="file" id="arquivo" multiple accept=".xml,.pdf,image/*" hidden>
       </div>
@@ -166,7 +179,7 @@
       <label class="campo">
         <span>Observação para a IA <em>(opcional)</em></span>
         <textarea id="observacao" rows="3"
-          placeholder="Ex.: a caixa de sabão vem com 12 unidades; tem um imposto a mais nessa nota"></textarea>
+          placeholder="Ex.: calcular DIFAL de 6%; a caixa de sabão vem com 12 unidades; veio taxa de R$ 30"></textarea>
       </label>
 
       <label class="campo">
@@ -177,11 +190,8 @@
       <button id="btn-ler" class="botao principal largura-total" disabled>Ler a nota</button>
     </div>
 
-    <div id="carregando" class="cartao escondido">
-      <div class="girando"></div>
-      <p id="texto-carregando">Lendo a nota...</p>
-      <p class="ajuda">Pode levar alguns segundos.</p>
-    </div>
+    <!-- preenchido na hora por progresso.js: etapas, relogio e barra -->
+    <div id="carregando" class="cartao cartao-progresso escondido"></div>
 
     <div id="erro-leitura" class="cartao alerta-erro escondido"></div>
   </section>
@@ -238,7 +248,7 @@
         <div class="area-icone" data-icone="lista" data-icone-tamanho="34"></div>
         <div class="area-texto">
           <strong>Toque para escolher</strong>
-          <span>foto, print ou PDF da lista</span>
+          <span>foto, print ou PDF da lista — ou cole com <kbd>Ctrl</kbd>+<kbd>V</kbd></span>
         </div>
         <input type="file" id="arquivo-lista" multiple accept=".pdf,image/*" hidden>
       </div>
@@ -263,10 +273,7 @@
       <button id="btn-montar" class="botao principal largura-total" disabled>Montar orçamento</button>
     </div>
 
-    <div id="montando" class="cartao escondido">
-      <div class="girando"></div>
-      <p>Lendo a lista e procurando no estoque...</p>
-    </div>
+    <div id="montando" class="cartao cartao-progresso escondido"></div>
   </section>
 
   <!-- ===================== CONFERIR ORÇAMENTO ===================== -->
@@ -329,7 +336,8 @@
       </p>
       <div class="acoes-pdf">
         <button class="botao principal" id="btn-whats-conferir" data-icone="compartilhar"><span>Enviar no WhatsApp</span></button>
-        <button class="botao secundario" id="btn-pdf-conferir" data-icone="baixar"><span>Baixar PDF</span></button>
+        <button class="botao secundario" id="btn-pdf-conferir" data-icone="pdf"><span>Baixar PDF</span></button>
+        <button class="botao excel" id="btn-excel-conferir" data-icone="planilha"><span>Baixar Excel</span></button>
         <button class="botao secundario" id="btn-imprimir-conferir" data-icone="imprimir"><span>Imprimir</span></button>
       </div>
     </div>
@@ -403,14 +411,17 @@
     </div>
 
     <div class="cartao">
-      <h2>IA que lê as fotos (Gemini)</h2>
-      <p class="ajuda">Usada em foto e PDF. Com XML, a IA nem entra.</p>
+      <h2>Inteligência artificial <span id="nome-da-ia" class="etiqueta info"></span></h2>
+      <p class="ajuda">
+        Lê foto e PDF de nota e de lista, entende a observação e responde no chat.
+        Nota em XML e lista digitada não usam IA (não gastam nada).
+      </p>
       <label class="campo">
-        <span>Chave da API</span>
-        <input type="password" id="cfg-chave-ia" placeholder="cole a chave aqui">
+        <span>Chave da API <em>(ChatGPT: começa com sk-, pegue em platform.openai.com)</em></span>
+        <input type="password" id="cfg-chave-ia" placeholder="cole a chave aqui" autocomplete="off">
       </label>
       <label class="campo">
-        <span>Modelo</span>
+        <span>Modelo <em>(deixe no recomendado)</em></span>
         <select id="cfg-modelo-ia"></select>
       </label>
       <button id="btn-testar-ia" class="botao secundario">Testar chave</button>

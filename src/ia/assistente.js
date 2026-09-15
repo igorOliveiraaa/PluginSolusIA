@@ -15,7 +15,7 @@ import { FERRAMENTA_MONTAR_ORCAMENTO } from './montar-pelo-chat.js';
 
 const MAX_RODADAS = 6;        // quantas consultas seguidas ela pode fazer numa pergunta
 // Teto de tempo de UMA pergunta. Cada rodada ja tem o seu limite, mas seis
-// rodadas emendadas num dia em que o Google esta cheio deixariam a pessoa
+// rodadas emendadas num dia em que a IA esta cheia deixariam a pessoa
 // esperando por minutos sem nenhuma resposta. Passando disso, responde com o
 // que ja conseguiu apurar.
 const TEMPO_DA_PERGUNTA_MS = 150000;
@@ -266,7 +266,7 @@ ${MAPA_DO_BANCO}
 Hoje e ${new Date().toLocaleDateString('pt-BR')}.`;
 }
 
-/** Chama o Gemini (com nova tentativa e modelo reserva, ver leitura/gemini.js). */
+/** Chama a IA (ChatGPT ou Gemini, com nova tentativa e modelo reserva - ver leitura/gemini.js). */
 function chamarIA({ conteudos, operador }) {
   return chamarGemini({
     systemInstruction: { parts: [{ text: instrucoes(operador) }] },
@@ -343,7 +343,7 @@ export async function perguntar({ pergunta, historico = [], operador }) {
   const demorou = Date.now() - comecou > TEMPO_DA_PERGUNTA_MS;
   return {
     resposta: demorou
-      ? 'A IA esta demorando demais agora (o servico do Google costuma estar cheio nesse horario). '
+      ? 'A IA esta demorando demais agora. '
         + 'Tente de novo em um minuto, ou pergunte de um jeito mais direto.'
       : 'Essa pergunta ficou complicada demais e precisei parar no meio. Tente perguntar de um jeito mais direto.',
     consultas: consultasFeitas,

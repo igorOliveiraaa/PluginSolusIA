@@ -9,7 +9,7 @@ import { procurarNoCatalogo, motivoDaSugestao } from './catalogo.js';
 const cacheColunas = new Map();
 
 /** Colunas da tabela neste banco, com o tamanho de cada uma. */
-async function estruturaDe(tabela) {
+export async function estruturaDe(tabela) {
   const nome = tabela.toUpperCase();
   // cada loja tem o seu banco, e os bancos podem ser de versoes diferentes do Solus
   const chaveCache = `${carregarConfig().lojaId || 'sem-loja'}:${nome}`;
@@ -306,7 +306,11 @@ export async function buscarPorDescricao(descricao, limite = 8, opcoes = {}) {
   if (!texto) return [];
 
   try {
-    const achados = await procurarNoCatalogo(texto, { limite, preferir: opcoes.preferir || [] });
+    const achados = await procurarNoCatalogo(texto, {
+      limite,
+      preferir: opcoes.preferir || [],
+      esconderParados: Boolean(opcoes.esconderParados),
+    });
     if (!achados.length) return [];
 
     // preco e estoque vem frescos do banco: o indice serve so para escolher quais
@@ -323,6 +327,7 @@ export async function buscarPorDescricao(descricao, limite = 8, opcoes = {}) {
         vendidoNoPeriodo: achado.vendidoNoPeriodo,
         vezesVendido: achado.vezesVendido,
         ultimaVenda: achado.ultimaVenda,
+        parado: achado.parado,
         motivo: motivoDaSugestao(achado),
       };
     }).filter(Boolean);

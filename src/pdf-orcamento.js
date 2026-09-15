@@ -125,7 +125,8 @@ export async function gerarPdfOrcamento({ orcamento, numero, operador, validadeD
   doc.fontSize(8).fillColor(CINZA).font('Helvetica').text('CLIENTE', 40, y);
   y += 12;
   doc.fontSize(11).fillColor(ESCURO).font('Helvetica-Bold')
-    .text(cliente?.nome || 'CONSUMIDOR', 40, y, { width: largura });
+    // sem cadastro, sai o nome que foi digitado na tela (no Solus e CONSUMIDOR)
+    .text(cliente?.nome || orcamento.nomeCliente || 'CONSUMIDOR', 40, y, { width: largura });
   y = doc.y + 2;
 
   const detalhesCliente = [
@@ -251,6 +252,7 @@ export function textoDoWhatsApp({ orcamento, numero, total, loja }) {
 
   return [
     `*Orçamento${numero ? ' nº ' + numero : ''}*${loja?.nome ? ' — ' + loja.nome : ''}`,
+    ...((orcamento.cliente?.nome || orcamento.nomeCliente) ? [`Para: ${orcamento.cliente?.nome || orcamento.nomeCliente}`] : []),
     '',
     ...linhas,
     '',

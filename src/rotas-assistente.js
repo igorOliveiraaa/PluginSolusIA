@@ -10,14 +10,40 @@ export const rotasAssistente = express.Router();
 // guarda a ultima resposta de cada operador, para poder exportar depois
 const ultimaResposta = new Map();
 
+const MAXIMO_DE_FALAS = 40;
+const MAXIMO_DE_LETRAS = 40000;
+
+/** As falas anteriores, das mais novas para tras, ate o teto. */
+function historicoQueCabe(bruto) {
+  if (!Array.isArray(bruto)) return [];
+  const limpas = bruto
+    .filter((m) => m && (m.papel === 'ia' || m.papel === 'pessoa') && String(m.texto || '').trim())
+    .map((m) => ({ papel: m.papel, texto: String(m.texto).slice(0, 6000) }))
+    .slice(-MAXIMO_DE_FALAS);
+
+  const ficam = [];
+  let letras = 0;
+  for (let i = limpas.length - 1; i >= 0; i -= 1) {
+    letras += limpas[i].texto.length;
+    if (letras > MAXIMO_DE_LETRAS) break;
+    ficam.unshift(limpas[i]);
+  }
+  // a conversa precisa comecar com a pessoa falando
+  while (ficam.length && ficam[0].papel !== 'pessoa') ficam.shift();
+  return ficam;
+}
+
 rotasAssistente.post('/api/perguntar', exigirLogin, async (req, res) => {
   try {
     const pergunta = String(req.body.pergunta || '').trim();
     if (!pergunta) throw new Error('Escreva a pergunta.');
     if (pergunta.length > 2000) throw new Error('Pergunta muito longa.');
 
-    // so as ultimas falas: conversa longa vira conta alta sem melhorar a resposta
-    const historico = Array.isArray(req.body.historico) ? req.body.historico.slice(-6) : [];
+    // A conversa inteira vai junto, ate a pessoa apertar "Nova conversa": e o
+    // que faz "e no mes passado?" e "e o preco dela?" funcionarem. O teto e so
+    // de seguranca (texto demais encarece sem ajudar): as falas mais recentes
+    // ficam, as mais antigas saem primeiro.
+    const historico = historicoQueCabe(req.body.historico);
 
     const resultado = await perguntar({ pergunta, historico, operador: req.operador });
 

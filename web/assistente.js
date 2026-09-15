@@ -3,12 +3,13 @@
 import { $, api, escapar, avisar, sessao } from './comum.js';
 import { icone } from './icones.js';
 import { abrirOrcamentoMontado } from './orcamento.js';
+import { htmlDoProgresso, animarProgresso } from './progresso.js';
 
 const conversa = [];       // { papel: 'pessoa' | 'ia', texto }
 let pensando = false;
 let temExportacao = false;
 let jaDesenhadas = 0;      // so a fala nova anima; as antigas ficam quietas
-let relogio = null;        // o que faz a animacao de "pesquisando" andar
+let pararProgresso = () => {};   // o que faz a animacao de "pesquisando" andar
 
 /*
  * Enquanto a IA pesquisa (10 a 50 segundos), a tela mostra em que parte ela
@@ -50,63 +51,25 @@ function etapasDaPergunta(pergunta) {
 
 function animacaoPensando(etapas) {
   return `
-    <div class="fala ia nova" id="fala-pensando" role="status" aria-live="polite">
-      <div class="balao pensando">
-        <div class="pensando-topo">
-          <span class="pensando-orbita" aria-hidden="true"><i></i><i></i><i></i></span>
-          <div>
-            <strong class="pensando-titulo">Pesquisando no sistema</strong>
-            <span class="pensando-tempo" id="pensando-tempo">agora mesmo</span>
-          </div>
-        </div>
-        <ol class="pensando-etapas">
-          ${etapas.map((etapa, i) => `<li class="${i === 0 ? 'atual' : ''}">${escapar(etapa)}</li>`).join('')}
-        </ol>
-        <div class="pensando-barra" aria-hidden="true"><span></span></div>
-        <p class="pensando-dica" id="pensando-dica"></p>
-      </div>
+    <div class="fala ia nova" id="fala-pensando">
+      ${htmlDoProgresso({ titulo: 'Pesquisando no sistema', etapas, classeExtra: 'balao pensando' })}
     </div>`;
 }
 
 /** Faz as etapas andarem, o relogio contar e as dicas trocarem. */
 function comecarAnimacao() {
   pararAnimacao();
-  const inicio = Date.now();
-
-  relogio = setInterval(() => {
-    const fala = $('#fala-pensando');
-    if (!fala) return;
-    const segundos = Math.floor((Date.now() - inicio) / 1000);
-
-    // uma etapa a cada 4 segundos; a ultima fica ate a resposta chegar
-    const itens = fala.querySelectorAll('.pensando-etapas li');
-    const atual = Math.min(Math.floor(segundos / 4), itens.length - 1);
-    itens.forEach((li, i) => {
-      li.classList.toggle('feita', i < atual);
-      li.classList.toggle('atual', i === atual);
-    });
-
-    $('#pensando-tempo').textContent = segundos < 3 ? 'agora mesmo' : `${segundos} segundos`;
-
-    // depois de 12s, uma frase que tranquiliza (troca a cada 7s, com transicao)
-    const dica = $('#pensando-dica');
-    if (segundos >= 12) {
-      const texto = segundos >= 45
-        ? 'Está demorando mais que o normal. A IA gratuita às vezes fica sobrecarregada — continuo tentando.'
-        : DICAS_DE_ESPERA[Math.floor((segundos - 12) / 7) % DICAS_DE_ESPERA.length];
-      if (dica.textContent !== texto) {
-        dica.classList.remove('trocando');
-        void dica.offsetWidth;            // reinicia a transicao
-        dica.textContent = texto;
-        dica.classList.add('trocando');
-      }
-    }
-  }, 500);
+  pararProgresso = animarProgresso($('#fala-pensando'), {
+    segundosPorEtapa: 4,
+    dicas: DICAS_DE_ESPERA,
+    dicasDepoisDe: 12,
+    avisoDeDemora: 'Está demorando mais que o normal — continuo tentando.',
+  });
 }
 
 function pararAnimacao() {
-  if (relogio) clearInterval(relogio);
-  relogio = null;
+  pararProgresso();
+  pararProgresso = () => {};
 }
 
 const SUGESTOES = [
@@ -317,8 +280,12 @@ async function enviar() {
       method: 'POST',
       body: JSON.stringify({
         pergunta,
-        // manda a conversa anterior para ela entender "e no mes passado?"
-        historico: conversa.slice(0, -1).slice(-10).map((m) => ({ papel: m.papel, texto: m.texto })),
+        // a conversa INTEIRA vai junto (ate "Nova conversa"): e o que faz
+        // "e no mes passado?" e "e o preco dela?" funcionarem. Mensagem de erro
+        // nao entra - so confundiria a IA.
+        historico: conversa.slice(0, -1)
+          .filter((m) => !m.erro)
+          .map((m) => ({ papel: m.papel, texto: m.texto })),
       }),
     });
 
@@ -333,14 +300,46 @@ async function enviar() {
       $('#linhas-exportar').textContent = `${resposta.quantidadeLinhas} ${resposta.quantidadeLinhas === 1 ? 'linha' : 'linhas'}`;
     }
   } catch (erro) {
-    conversa.push({ papel: 'ia', texto: `Não consegui responder: ${erro.message}` });
+    conversa.push({ papel: 'ia', texto: `Não consegui responder: ${erro.message}`, erro: true });
+    document.dispatchEvent(new CustomEvent('ia-falhou', { detail: erro.message }));
   } finally {
     pararAnimacao();
     pensando = false;
     atualizarBotoes();
     desenhar();
+    guardarConversa();
   }
 }
+
+// ---------------------------------------------------------------------------
+// A conversa sobrevive a trocar de aba e a recarregar a pagina
+// ---------------------------------------------------------------------------
+// Sem isso, ir na aba Orcamento e voltar apagava o contexto. Fica guardada so
+// nesta janela do navegador e so para quem entrou (outro usuario nao ve).
+
+const chaveDaConversa = () => `solus-conversa-${sessao.operador?.codigo || 'anonimo'}`;
+
+function guardarConversa() {
+  try {
+    sessionStorage.setItem(chaveDaConversa(), JSON.stringify(conversa.slice(-60)));
+  } catch { /* navegador sem armazenamento: segue so na memoria */ }
+}
+
+function recuperarConversa() {
+  try {
+    const guardada = JSON.parse(sessionStorage.getItem(chaveDaConversa()) || '[]');
+    if (Array.isArray(guardada) && guardada.length && !conversa.length) {
+      conversa.push(...guardada);
+      jaDesenhadas = conversa.length;         // o que ja estava na tela nao anima de novo
+      desenhar();
+    }
+  } catch { /* guardado quebrado: comeca do zero */ }
+}
+
+document.addEventListener('abriu-tela', (evento) => {
+  if (evento.detail === 'assistente') recuperarConversa();
+});
+document.addEventListener('entrou', recuperarConversa);
 
 function atualizarBotoes() {
   $('#btn-perguntar').disabled = Boolean(pensando);
@@ -396,11 +395,15 @@ $('#btn-pdf-resultado').addEventListener('click', () => baixar('pdf'));
 
 $('#btn-limpar-conversa').addEventListener('click', () => {
   if (pensando) return;      // limpar no meio da pesquisa perderia a resposta
+  if (conversa.length > 2 && !confirm('Começar uma conversa nova? A IA esquece o que foi falado até aqui.')) return;
   conversa.length = 0;
   jaDesenhadas = 0;
   temExportacao = false;
+  guardarConversa();
   atualizarBotoes();
   desenhar();
+  $('#pergunta').focus();
 });
 
 desenhar();
+recuperarConversa();

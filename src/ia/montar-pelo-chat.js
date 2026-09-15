@@ -81,14 +81,18 @@ export async function montarOrcamentoPeloChat({ itens, cliente }, contexto = {})
   const montado = await montarOrcamento({
     lista,
     cliente: busca.cliente,
+    // nome que nao tem cadastro: no Solus entra como consumidor, mas o PDF e o
+    // Excel saem com o nome (e o que a loja pediu)
+    nomeCliente: busca.cliente ? '' : (busca.naoAchei || ''),
     mostrarCusto: Boolean(operador.permissoes.verCusto),
   });
   const id = guardarOrcamento(montado);
 
   return {
     id,
-    cliente: busca.cliente?.nome || 'CONSUMIDOR',
+    cliente: busca.cliente?.nome || montado.nomeCliente || 'CONSUMIDOR',
     clienteNaoEncontrado: busca.naoAchei || null,
+    semCadastro: Boolean(!busca.cliente && busca.naoAchei),
     total: montado.resumo.total,
     totalEscrito: dinheiro(montado.resumo.total),
     itensParaEscolher: montado.resumo.precisamEscolha,
@@ -116,7 +120,11 @@ export const FERRAMENTA_MONTAR_ORCAMENTO = {
     + 'para a pessoa conferir. NAO grava no Solus e NAO define preco final sozinho. '
     + 'Use quando pedirem "faz um orcamento", "monta um orcamento para o fulano de tal coisa". '
     + 'Depois de montar, diga o total, quais itens precisam de escolha, e avise para '
-    + 'abrir a aba Orcamento e conferir antes de gravar.',
+    + 'abrir a aba Orcamento e conferir antes de gravar. '
+    + 'Se o cliente nao tiver cadastro (semCadastro), avise que o PDF e o Excel saem com '
+    + 'o nome dele, mas no Solus o orcamento entra como CONSUMIDOR. '
+    + 'Se voltar precisaEscolherCliente, PERGUNTE qual e (mostrando cidade/CNPJ) antes de montar de novo. '
+    + 'Se a lista estiver vaga (sem quantidade, produto que pode ser varios), pergunte antes de montar.',
   parameters: {
     type: 'object',
     properties: {

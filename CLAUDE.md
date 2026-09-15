@@ -35,6 +35,12 @@ aparece no terminal. O PC servidor precisa ficar ligado.
 Configuração (banco, chave da IA, regras de preço) fica em `dados/config.json`,
 editável pela aba **Ajustes** da própria ferramenta.
 
+**Atualizar (dois cliques):** `ATUALIZAR-PLUGIN.bat` faz tudo sozinho — fecha o Plugin,
+baixa a versão nova do GitHub (com Git se houver; senão baixa o ZIP pelo PowerShell),
+copia por cima **pulando `dados`, `node_modules` e `.git`** (robocopy) e roda o
+`npm install`. Nada de apagar pasta: chave da IA, lojas, histórico e logo ficam.
+Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
+
 ## Mapa do código
 
 | Arquivo | O que faz |
@@ -50,7 +56,11 @@ editável pela aba **Ajustes** da própria ferramenta.
 | `src/db/gravacao.js` | Gravar, igualar preço de repetidos, desativar, desfazer |
 | `src/leitura/xml.js` | Ler XML da NF-e + converter caixa em unidade |
 | `src/leitura/ia.js` | Ler foto/PDF com o Google Gemini |
-| `src/leitura/gemini.js` | Porta única para o Gemini: tenta de novo e usa modelo reserva |
+| `src/leitura/gemini.js` | Porta única da IA: tenta de novo, usa modelo reserva e escolhe o provedor |
+| `src/leitura/openai.js` | O ChatGPT por trás dessa porta: traduz o pedido e a resposta |
+| `src/xlsx.js` | Escreve arquivo .xlsx (ZIP + XML na mão, sem biblioteca) |
+| `src/excel-orcamento.js` | O orçamento em planilha do Excel, com fórmulas |
+| `src/logica/padroes-fiscais.js` | CST, IBS/CBS e "acessa valores" que o produto precisa ter |
 | `src/logica/custo.js` | Custo real com frete, IPI, ICMS-ST e crédito de imposto |
 | `src/logica/precos.js` | Margem, preço sugerido e arredondamento |
 | `src/logica/medidas.js` | Lê "3.70 X 2.10" no nome da venda e calcula o preço do m² |
@@ -78,6 +88,11 @@ editável pela aba **Ajustes** da própria ferramenta.
 | `web/` | A interface (PWA, funciona no celular e no PC) |
 | `web/icones.js` | Ícones em SVG (sem emoji, sem biblioteca) |
 | `web/instalar.js` | Instalar como aplicativo no celular e no PC |
+| `web/marca.js` | O logo da loja no menu e as cores dele no Plugin inteiro |
+| `web/progresso.js` | O "trabalhando nisso" com etapas (nota, orçamento e chat) |
+| `web/colar.js` | Colar foto/print com Ctrl+V |
+| `web/efeitos.js` | A onda no clique e os movimentos gerais |
+| `web/aviso-ia.js` | Faixa de "acabou o crédito da IA" |
 | `src/ferramentas/` | Scripts de teste (`varredura.mjs` caça bugs no codigo; `gerar-icones.mjs` refaz os icones) |
 | `src/ferramentas/credenciais-de-teste.mjs` | Usuário/senha dos testes — vem de `dados/teste.json`, nunca do código |
 
@@ -134,7 +149,28 @@ editável pela aba **Ajustes** da própria ferramenta.
 - Em venda de item personalizado a `ITEMPEDIDO.DESCRICAO` NÃO é igual à do cadastro,
   e às vezes o código da venda nem existe mais em `PRODUTO`.
 
-## O que aprendi do Gemini
+## A IA: hoje e o ChatGPT (OpenAI)
+
+- A chave fica em `dados/config.json` (fora do Git). **Chave que começa com `sk-` é da
+  OpenAI**; qualquer outra é tratada como Gemini. `ia.provedor` fixa isso à mão.
+- **Nada no Plugin foi reescrito para trocar de IA**: todo o código continua montando o
+  pedido no formato do Gemini, e `leitura/openai.js` TRADUZ (pedido e resposta) quando a
+  chave é da OpenAI. Trocar de volta é só colar a chave antiga.
+- Modelos escolhidos **por teste com nota real de 60 itens** (15/09/2026):
+  `gpt-5.4-mini` principal (60 itens sem erro em 16s), `gpt-4.1-mini` reserva — de outra
+  família de propósito, para não cair junto — e `gpt-5.4-nano` para tarefa pequena.
+- `reasoning_effort: 'none'` é o equivalente ao `thinkingBudget: 0` do Gemini (o
+  "raciocínio interno" é cobrado e não ajuda a ler documento de formato fixo).
+  Modelo de raciocínio **não aceita `temperature`** diferente do padrão.
+- PDF vai como `{ type: 'file', file: { file_data: 'data:application/pdf;base64,...' } }`
+  e foto como `image_url`. **HEIC (foto de iPhone) a OpenAI não lê** — a mensagem na tela
+  pede JPG/PNG ou print.
+- Conta sem saldo responde **429 `insufficient_quota`** e isso NÃO passa esperando:
+  `/api/ia/situacao` marca, e a faixa vermelha do topo avisa (`web/aviso-ia.js`).
+- Velocidade medida: nota de 1 item 3s, nota de 60 itens 16s, observação 1s, lista 1,6s,
+  pergunta no chat 2 a 5s. No Gemini grátis era de 10 a 50s com 503 no meio.
+
+## O que aprendi do Gemini (continua valendo como reserva)
 
 - **Use `gemini-flash-latest`**. O `gemini-2.5-flash` aparece na lista de modelos mas
   devolve 404 "no longer available to new users" para contas novas.
@@ -182,6 +218,20 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   O estoque entra **só** no cadastro principal.
 - Avisa se a nota já foi lançada antes.
 - Histórico com **desfazer** completo.
+- **Campos fiscais que faltam são preenchidos** (`logica/padroes-fiscais.js`): CST 102,
+  CST Cbs/Ibs 000, classificação 000001, acessa descrição N, acessa valores S, baixa
+  estoque S. Só onde está VAZIO — quem já tem 500 configurado de propósito fica como
+  está. Produto novo nasce com tudo (antes nascia vazio e a nota de venda era recusada).
+  As colunas da reforma (IBS/CBS) são achadas pelo NOME, porque a cópia de banco usada
+  no desenvolvimento é anterior a elas: rode `node src/ferramentas/campos-fiscais.mjs`
+  na loja para conferir quais existem lá.
+- **Observação em porcentagem** ("calcular DIFAL de 6%", "veio de outro estado 6%"):
+  o próprio código lê a porcentagem, sem depender da IA, e aplica em cima do valor de
+  cada item (produto − desconto + frete + IPI). Antes a IA só sabia devolver valor em
+  reais e era proibida de calcular, então "6%" virava ZERO em silêncio.
+- A tela de conferência abre com **"O que fiz com a sua observação"**: quanto entrou de
+  DIFAL/taxa, em quantos itens, o que foi rateado e o que não foi entendido. Se a IA
+  falhar, aparece em vermelho que NADA foi somado (antes era silencioso).
 
 ### 2. Orçamento — pronto
 - Lê a lista do cliente por foto/print/PDF (IA) ou digitada (sem IA, de graça).
@@ -204,6 +254,21 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Gera PDF (com o **logo da loja** no topo, se cadastrado em Ajustes), imprime e
   compartilha no WhatsApp (escolhendo o contato) — os botões aparecem **antes de
   gravar** também: manda para o cliente aprovar e só depois grava no Solus.
+- **Excel (.xlsx)** ao lado do PDF, para o cliente que prefere planilha: mesmo conteúdo,
+  com o total de cada linha e o total geral em FÓRMULA (se o cliente mudar a quantidade,
+  a conta acompanha). Feito sem biblioteca nova (`src/xlsx.js` escreve o ZIP e os XML),
+  porque a loja atualiza por ZIP e não roda `npm install` a cada versão.
+- **Cliente sem cadastro**: dá para digitar só o nome ("Dona Maria"). O nome sai no PDF,
+  no Excel, no texto do WhatsApp e no nome do arquivo
+  (`orcamento-123-dona-maria.pdf`); no Solus entra como CONSUMIDOR, com o nome na
+  observação do pedido para dar para achar depois. O chat também aceita.
+- **Quantidade é número inteiro** — "2,4 detergente" vira 2. A exceção é o que a loja
+  vende em pedaço (unidade M2, M, KG, L, ou "M2" no nome, como o tapete), que continua
+  aceitando vírgula.
+- **Produto parado não é sugerido**: quem não teve venda, entrada nem mudança de preço
+  há mais de 2 anos (`DIAS_PARA_PARADO`) fica de fora da sugestão automática. Na
+  pesquisa que a pessoa faz na mão ele aparece, marcado como "parado há X anos".
+  São 7.920 dos 12.275 produtos da cópia do banco — por isso a busca melhorou tanto.
 
 ### 3. Cliente por CNPJ — pronto
 - Digita o CNPJ, busca em base pública e cadastra no Solus.
@@ -233,6 +298,11 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   venda. Devolve faturamento, custo, lucro bruto, margem, o que deu mais lucro e o
   que saiu **abaixo do custo**. A resposta é obrigada a dizer que é **lucro BRUTO**
   (sem imposto, aluguel, folha, cartão) — senão quem lê decide em cima do número errado.
+- **A conversa inteira vai junto** até apertar "Nova conversa": é o que faz "e no mês
+  passado?" e "e o preço dela?" funcionarem. Ela sobrevive a trocar de aba e a recarregar
+  a página (fica no `sessionStorage`, só desta janela e só de quem entrou). O teto é de
+  segurança: 40 falas ou 40 mil letras, as mais antigas saem primeiro. Mensagem de erro
+  não entra no contexto.
 - **Monta orçamento pelo chat**: "monta um orçamento para o fulano de 10 detergente".
   É a única ferramenta dele que faz algo — e mesmo assim **não grava no Solus**:
   deixa pronto na aba Orçamento e aparece o botão "Abrir e conferir". Recusa quem
@@ -303,8 +373,22 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   (o servidor não manda progresso) e a última fica ativa até a resposta chegar.
   Só a fala nova anima (antes a conversa inteira piscava a cada pergunta), e o
   indicador continua girando mesmo com as animações do Windows desligadas.
-- No celular: abas em cima, botões grandes, respeita a área segura do aparelho.
-- No PC (1024px+): o menu vira barra lateral e a tela vira um app.
+- **As cores saem do LOGO da loja** (`web/marca.js`): a imagem é desenhada num
+  quadradinho escondido, os pixels são agrupados por matiz e as 3 cores mais fortes
+  viram o menu, o botão principal e a aurora do fundo. Sem logo, paleta padrão
+  (indigo, teal e rosa). As cores ficam guardadas no navegador para a tela não piscar
+  a paleta errada ao abrir. Trocar o logo em Ajustes repinta o Plugin na hora.
+- **Cada tela tem a sua cor** (`--acento`): Nota azul, Orçamento violeta, Cliente âmbar,
+  Tarefas rosa, Histórico ciano, Ajustes ardósia. Vale para o título do cartão, foco de
+  campo, área de arquivo e botão secundário.
+- **Movimento em tudo**: onda no clique (todo botão, aba e opção), cartões entrando em
+  cascata a cada troca de tela, modal que abre E FECHA com movimento (fecha no Esc e
+  clicando fora), hover em cartão, item, tarefa e opção, ícone da aba que cresce,
+  e o contador de tarefas que pulsa quando muda.
+- No celular: abas com ícone em cima, botões grandes, respeita a área segura do aparelho.
+- **No PC o menu é uma barra lateral recolhida** (só os ícones, 78px) que **abre ao
+  passar o mouse** e fecha sozinha, por cima do conteúdo — com o logo da loja no topo e
+  "Sair" embaixo. Abre também pelo teclado (`:focus-within`).
 - Respeita "reduzir animações" do sistema e tem estilo próprio para impressão.
 
 ### 10. Instalar como aplicativo (PWA) — pronto
@@ -356,13 +440,31 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Quem sabe se mudou é o `precoMudou` que `db/gravacao.js` grava em cada registro
   (produto novo conta sempre como mudou: nunca teve etiqueta).
 
-### 13. XML da nota com um clique — pronto
+### 13. Colar com Ctrl+V — pronto
+- Copiou o print do WhatsApp ou a foto da nota? **Ctrl+V** na aba Nota ou Orçamento e a
+  imagem entra como se tivesse escolhido o arquivo (`web/colar.js`). Colar texto dentro
+  de um campo continua normal: só arquivo é capturado. Print colado sempre se chama
+  "image.png", então ele é renomeado para não parecer repetido.
+
+### 14. Aviso de crédito da IA — pronto
+- Conta da OpenAI sem saldo responde 429 `insufficient_quota`, e isso **não passa
+  esperando**. A faixa vermelha no topo de todas as telas avisa, com o link do Billing,
+  e lembra que lista digitada e XML continuam funcionando sem IA.
+- A tela pergunta `/api/ia/situacao` a cada 90 segundos e na hora em que uma chamada
+  falha por crédito.
+
+### 15. XML da nota com um clique — pronto
 - No Solus, exportar o XML exige ir a outra tela depois de gerar a nota. Na aba
   **Tarefas** agora tem **Baixar XML** ao lado de "Ver a nota" — sai direto da
   pasta onde o ACBr já salvou (precisa da pasta cadastrada em Ajustes).
 
 ### Pendente
 - **Testar com nota e lista reais da loja** (é o próximo passo).
+- **Trocar a chave da OpenAI** por uma nova (a atual foi colada numa conversa; gerar
+  outra em platform.openai.com e colar em Ajustes leva 1 minuto).
+- Na loja, rodar `node src/ferramentas/campos-fiscais.mjs` para conferir o nome real das
+  colunas de **CST Cbs/Ibs** e **Classificação Fiscal** (não existem na cópia de teste).
+- Acompanhar o **gasto da IA** em platform.openai.com → Usage nos primeiros dias.
 - No celular, para instalar o aplicativo é preciso abrir pelo endereço **https**.
   Com certificado próprio o Chrome do Android não registra o service worker, então
   pode não aparecer o botão: nesse caso o caminho é o menu do navegador →

@@ -1190,7 +1190,7 @@ body.travado { overflow: hidden; }
 
 button:focus-visible, a:focus-visible, input:focus-visible,
 textarea:focus-visible, select:focus-visible, summary:focus-visible {
-  outline: 2.5px solid var(--principal-claro);
+  outline: 2.5px solid rgba(var(--acento-rgb), .85);
   outline-offset: 2px;
 }
 
@@ -1668,3 +1668,583 @@ textarea:focus-visible, select:focus-visible, summary:focus-visible {
   .linha-etiqueta-nome { flex: 1 1 100%; white-space: normal; order: 2; padding-left: 27px; }
   .linha-etiqueta-preco { order: 3; padding-left: 27px; }
 }
+
+/* ============================================================
+   VISUAL 2 - a cara da loja, mais cor e movimento em tudo
+   (vem por ultimo de proposito: substitui o que ficou acima)
+   ============================================================ */
+
+:root {
+  /* as cores da marca saem do LOGO da loja (web/marca.js); sem logo, estas */
+  --marca-1-rgb: 79, 70, 229;
+  --marca-2-rgb: 13, 148, 136;
+  --marca-3-rgb: 219, 39, 119;
+  --marca-1: rgb(var(--marca-1-rgb));
+  --marca-2: rgb(var(--marca-2-rgb));
+  --marca-3: rgb(var(--marca-3-rgb));
+
+  /* cada tela tem a sua cor de destaque, para nao ficar tudo de uma cor so */
+  --acento-rgb: var(--marca-1-rgb);
+  --acento: rgb(var(--acento-rgb));
+}
+
+#tela-assistente { --acento-rgb: var(--marca-1-rgb); }
+#tela-enviar, #tela-conferencia, #tela-resultado { --acento-rgb: 37, 99, 235; }
+#tela-orcamento, #tela-conferir-orcamento, #tela-resultado-orcamento { --acento-rgb: 124, 58, 237; }
+#tela-cliente { --acento-rgb: 217, 119, 6; }
+#tela-tarefas { --acento-rgb: 219, 39, 119; }
+#tela-historico { --acento-rgb: 8, 145, 178; }
+#tela-config { --acento-rgb: 71, 85, 105; }
+.tela { --acento: rgb(var(--acento-rgb)); }
+
+/* ---------------- aurora com as cores da loja ---------------- */
+
+body { background: #eef1f8; }
+
+body::before {
+  background:
+    radial-gradient(40% 36% at 8% 6%, rgba(var(--marca-1-rgb), .30) 0%, transparent 62%),
+    radial-gradient(44% 38% at 92% 10%, rgba(var(--marca-2-rgb), .26) 0%, transparent 60%),
+    radial-gradient(50% 44% at 50% 104%, rgba(var(--marca-3-rgb), .20) 0%, transparent 62%),
+    radial-gradient(30% 28% at 80% 70%, rgba(var(--marca-1-rgb), .16) 0%, transparent 58%),
+    radial-gradient(28% 26% at 18% 66%, rgba(var(--marca-2-rgb), .14) 0%, transparent 58%);
+  animation: aurora 30s ease-in-out infinite alternate;
+  transition: background 1.2s ease;
+}
+
+/* ---------------- vidro ---------------- */
+
+.cartao {
+  background: rgba(255, 255, 255, .6);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, .72);
+  box-shadow: 0 10px 34px rgba(15, 23, 42, .07), inset 0 1px 0 rgba(255, 255, 255, .85);
+}
+
+.cartao::before {
+  background: linear-gradient(90deg, transparent, rgba(var(--acento-rgb), .75), rgba(var(--marca-3-rgb), .5), transparent);
+}
+
+.cartao:hover { box-shadow: 0 18px 48px rgba(15, 23, 42, .11), inset 0 1px 0 rgba(255, 255, 255, .85); }
+
+/* titulo de cartao com a marquinha colorida da tela */
+.cartao > h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.cartao > h2::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 6px;
+  height: 20px;
+  border-radius: 6px;
+  background: linear-gradient(180deg, var(--acento), rgb(var(--marca-3-rgb)));
+  box-shadow: 0 2px 8px rgba(var(--acento-rgb), .35);
+}
+
+/* ---------------- botoes ---------------- */
+
+.botao, .aba, .sugestao, .filtro, .usar-so-nome, .botao-nova-conversa,
+.resultado-busca button, .botao-sair {
+  position: relative;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.botao.principal {
+  background: linear-gradient(135deg, rgb(var(--marca-1-rgb)) 0%, rgb(var(--marca-2-rgb)) 100%);
+  background-size: 180% 180%;
+  box-shadow: 0 10px 26px rgba(var(--marca-1-rgb), .30);
+}
+
+.botao.principal:hover:not(:disabled) {
+  box-shadow: 0 14px 34px rgba(var(--marca-1-rgb), .38), 0 4px 12px rgba(var(--marca-2-rgb), .25);
+}
+
+.botao.secundario {
+  transition: background .25s var(--suave), color .25s var(--suave),
+              border-color .25s var(--suave), transform .25s var(--mola),
+              box-shadow .25s var(--suave);
+}
+
+.botao.secundario:hover:not(:disabled) {
+  color: var(--acento);
+  border-color: rgba(var(--acento-rgb), .35);
+  box-shadow: 0 8px 20px rgba(var(--acento-rgb), .12);
+}
+
+.botao.excel {
+  background: rgba(255, 255, 255, .9);
+  color: #107c41;
+  border-color: rgba(16, 124, 65, .3);
+}
+
+.botao.excel:hover:not(:disabled) {
+  background: #107c41;
+  color: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(16, 124, 65, .28);
+}
+
+.botao:focus-visible { box-shadow: 0 0 0 4px rgba(var(--acento-rgb), .25); }
+
+/* a onda que sai do ponto clicado (web/efeitos.js) */
+.onda {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background: currentColor;
+  opacity: .22;
+  transform: scale(0);
+  animation: onda .65s var(--suave) forwards;
+}
+
+@keyframes onda { to { transform: scale(1); opacity: 0; } }
+
+kbd {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid var(--borda);
+  border-bottom-width: 2px;
+  background: #fff;
+  font: 600 11.5px/1.6 inherit;
+  color: var(--texto);
+}
+
+/* ---------------- campos e areas com a cor da tela ---------------- */
+
+.campo input:focus, .campo textarea:focus, .campo select:focus {
+  border-color: rgba(var(--acento-rgb), .7);
+  box-shadow: 0 0 0 4px rgba(var(--acento-rgb), .15);
+}
+
+.area-arquivo { border-color: rgba(var(--acento-rgb), .35); color: var(--acento); }
+
+.area-arquivo:hover, .area-arquivo.arrastando {
+  border-color: var(--acento);
+  background: rgba(var(--acento-rgb), .07);
+}
+
+.area-arquivo.recebeu { animation: recebeu .8s var(--suave); }
+
+@keyframes recebeu {
+  0% { box-shadow: 0 0 0 0 rgba(var(--acento-rgb), .45); transform: scale(1.02); }
+  100% { box-shadow: 0 0 0 18px rgba(var(--acento-rgb), 0); transform: none; }
+}
+
+.caixinhas input { accent-color: var(--acento); }
+
+/* ---------------- troca de tela: cartoes em cascata ---------------- */
+
+.tela.ativa { animation: none; }
+.tela.ativa > * { animation: entrarCartao .5s var(--suave) backwards; }
+.tela.ativa > *:nth-child(2) { animation-delay: .05s; }
+.tela.ativa > *:nth-child(3) { animation-delay: .1s; }
+.tela.ativa > *:nth-child(4) { animation-delay: .15s; }
+.tela.ativa > *:nth-child(5) { animation-delay: .2s; }
+.tela.ativa > *:nth-child(n+6) { animation-delay: .25s; }
+
+@keyframes entrarCartao {
+  from { opacity: 0; transform: translateY(16px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------------- resumo do que foi feito com a observacao ---------------- */
+
+.resumo-observacao {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(var(--acento-rgb), .10), rgba(var(--marca-3-rgb), .06));
+  border: 1px solid rgba(var(--acento-rgb), .22);
+  animation: entrarCartao .5s var(--suave) backwards .15s;
+}
+
+.resumo-observacao p { margin: 4px 0 0; font-size: 14px; }
+.resumo-observacao ul { margin: 6px 0 2px; padding-left: 18px; font-size: 14px; }
+.resumo-observacao li { margin-bottom: 4px; }
+.resumo-observacao-entendi { color: var(--texto-fraco); font-style: italic; }
+
+.resumo-observacao-icone {
+  flex: 0 0 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--acento), rgb(var(--marca-3-rgb)));
+  box-shadow: 0 6px 16px rgba(var(--acento-rgb), .3);
+}
+
+.resumo-observacao.neutro { background: rgba(255, 255, 255, .55); border-color: var(--borda); }
+.resumo-observacao.neutro .resumo-observacao-icone {
+  background: linear-gradient(135deg, #64748b, #94a3b8);
+  box-shadow: none;
+}
+
+.resumo-observacao.alerta { background: var(--perigo-fundo); border-color: rgba(212, 24, 61, .28); }
+.resumo-observacao.alerta .resumo-observacao-icone { background: linear-gradient(135deg, #e11d48, #f97316); }
+
+/* ---------------- carregando dentro de cartao ---------------- */
+
+.cartao-progresso { padding: 20px 20px 16px; }
+.cartao-progresso .pensando-titulo { font-size: 16px; }
+
+.progresso .pensando-titulo {
+  background: linear-gradient(90deg, rgb(var(--marca-1-rgb)), rgb(var(--marca-3-rgb)),
+                              rgb(var(--marca-2-rgb)), rgb(var(--marca-1-rgb)));
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+.progresso .pensando-orbita i { background: rgb(var(--marca-2-rgb)); }
+.progresso .pensando-orbita i:nth-child(2) { background: rgb(var(--marca-1-rgb)); }
+.progresso .pensando-orbita i:nth-child(3) { background: rgb(var(--marca-3-rgb)); }
+
+.progresso .pensando-barra span {
+  background: linear-gradient(90deg, rgb(var(--marca-2-rgb)), rgb(var(--marca-1-rgb)), rgb(var(--marca-3-rgb)));
+}
+
+.progresso .pensando-etapas li.atual::before {
+  border-color: rgb(var(--marca-1-rgb));
+  background: rgba(var(--marca-1-rgb), .12);
+}
+
+/* ---------------- orcamento: nome sem cadastro ---------------- */
+
+.usar-so-nome {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 12px 14px;
+  text-align: left;
+  font: inherit;
+  color: var(--texto);
+  cursor: pointer;
+  border-radius: 14px;
+  border: 1.5px dashed rgba(var(--acento-rgb), .4);
+  background: rgba(var(--acento-rgb), .05);
+  transition: background .25s var(--suave), border-color .25s var(--suave), transform .25s var(--mola);
+}
+
+.usar-so-nome .icone { color: var(--acento); }
+.usar-so-nome span { display: flex; flex-direction: column; }
+.usar-so-nome em { font-style: normal; font-size: 13px; color: var(--texto-fraco); }
+
+.usar-so-nome:hover {
+  background: rgba(var(--acento-rgb), .1);
+  border-color: var(--acento);
+  transform: translateY(-1px);
+}
+
+/* ---------------- chat: nova conversa ---------------- */
+
+.botao-nova-conversa {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--borda);
+  background: rgba(255, 255, 255, .7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--texto-fraco);
+  font: 600 13.5px/1 inherit;
+  cursor: pointer;
+  transition: color .25s var(--suave), border-color .25s var(--suave),
+              transform .25s var(--mola), box-shadow .25s var(--suave);
+}
+
+.botao-nova-conversa:hover {
+  color: var(--acento);
+  border-color: rgba(var(--acento-rgb), .4);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(var(--acento-rgb), .14);
+}
+
+/* ---------------- faixa de credito da IA ---------------- */
+
+.faixa-credito {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: var(--raio);
+  background: linear-gradient(135deg, rgba(225, 29, 72, .12), rgba(249, 115, 22, .12));
+  border: 1px solid rgba(225, 29, 72, .3);
+  box-shadow: 0 10px 30px rgba(225, 29, 72, .12);
+  animation: entrarCartao .5s var(--suave);
+}
+
+.faixa-credito-texto { flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.faixa-credito-texto strong { color: #be123c; font-size: 15px; }
+.faixa-credito .botao { padding: 9px 14px; font-size: 14px; text-decoration: none; }
+
+/* ---------------- topo / menu (celular) ---------------- */
+
+.topo {
+  padding: 12px 14px 0;
+  background: linear-gradient(118deg,
+    rgba(var(--marca-1-rgb), .96) 0%,
+    rgba(var(--marca-2-rgb), .94) 55%,
+    rgba(var(--marca-3-rgb), .92) 100%);
+  background-size: 220% 100%;
+  box-shadow: 0 6px 28px rgba(var(--marca-1-rgb), .25);
+  transition: background 1s ease;
+}
+
+.topo-titulo { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+
+.marca { display: flex; align-items: center; gap: 10px; min-width: 0; }
+
+.marca-caixa {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(255, 255, 255, .96);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, .16);
+}
+
+.marca-caixa img { width: 100%; height: 100%; object-fit: contain; padding: 4px; }
+.marca-icone { color: rgb(var(--marca-1-rgb)); line-height: 0; }
+.marca-texto { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.marca-texto strong { font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.marca-texto .topo-sub { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.botao-sair {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  cursor: pointer;
+  background: rgba(255, 255, 255, .16);
+  transition: background .25s var(--suave), transform .25s var(--mola);
+}
+
+.botao-sair:hover { background: rgba(255, 255, 255, .28); transform: translateY(-1px); }
+.botao-sair .aba-rotulo { display: none; }
+
+.abas { margin-top: 10px; gap: 0; }
+
+.aba {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 8px 12px 11px;
+  font-size: 12.5px;
+  transition: color .25s var(--suave), background .25s var(--suave), transform .25s var(--mola);
+}
+
+.aba .icone { transition: transform .35s var(--mola); }
+.aba:hover .icone { transform: translateY(-2px) scale(1.08); }
+.aba.ativa .icone { transform: scale(1.1); }
+.aba::after { left: 22%; right: 22%; background: #fff; }
+
+/* ---------------- menu lateral (PC) ---------------- */
+
+@media (min-width: 1024px) {
+  .topo {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    bottom: 14px;
+    width: 78px;
+    padding: 16px 13px;
+    border-radius: 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow: hidden;
+    z-index: 60;
+    background: linear-gradient(185deg,
+      rgba(var(--marca-1-rgb), .97) 0%,
+      rgba(var(--marca-2-rgb), .95) 62%,
+      rgba(var(--marca-3-rgb), .93) 100%);
+    background-size: 100% 100%;
+    animation: none;
+    box-shadow: 0 18px 50px rgba(var(--marca-1-rgb), .28), inset 0 1px 0 rgba(255, 255, 255, .25);
+    transition: width .42s var(--suave), box-shadow .42s var(--suave), background 1s ease;
+  }
+
+  /* abre quando o mouse chega (ou quando se navega pelo teclado) */
+  .topo:hover, .topo:focus-within {
+    width: 256px;
+    box-shadow: 0 26px 70px rgba(15, 23, 42, .32), inset 0 1px 0 rgba(255, 255, 255, .25);
+  }
+
+  .topo-titulo { display: contents; }
+
+  .marca {
+    order: 0;
+    min-width: 230px;
+    gap: 12px;
+    padding: 2px 0 14px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, .2);
+  }
+
+  .marca-caixa { flex-basis: 52px; width: 52px; height: 52px; border-radius: 16px; }
+  .marca-texto {
+    opacity: 0;
+    transform: translateX(-8px);
+    transition: opacity .22s var(--suave), transform .35s var(--suave);
+  }
+  .marca-texto strong { font-size: 15px; max-width: 160px; }
+  .marca-texto .topo-sub { max-width: 160px; }
+
+  .abas { order: 1; flex-direction: column; gap: 4px; margin: 0; overflow: visible; }
+
+  .aba {
+    flex: 0 0 auto;
+    flex-direction: row;
+    gap: 15px;
+    min-width: 230px;
+    padding: 12px 15px;
+    border-radius: 15px;
+    font-size: 14.5px;
+    text-align: left;
+    color: rgba(255, 255, 255, .8);
+  }
+
+  .aba::after { display: none; }
+  .aba:hover:not(.ativa) { background: rgba(255, 255, 255, .15); color: #fff; }
+
+  .aba.ativa {
+    background: #fff;
+    color: rgb(var(--marca-1-rgb));
+    box-shadow: 0 10px 24px rgba(0, 0, 0, .16);
+  }
+
+  .aba.ativa .icone { transform: none; }
+
+  .aba-rotulo {
+    opacity: 0;
+    transform: translateX(-8px);
+    white-space: nowrap;
+    transition: opacity .2s var(--suave), transform .32s var(--suave);
+  }
+
+  .topo:hover .aba-rotulo, .topo:focus-within .aba-rotulo,
+  .topo:hover .marca-texto, .topo:focus-within .marca-texto { opacity: 1; transform: none; }
+
+  /* os rotulos aparecem um apos o outro, de cima para baixo */
+  .topo:hover .marca-texto { transition-delay: .06s; }
+  .topo:hover .aba:nth-child(1) .aba-rotulo { transition-delay: .08s; }
+  .topo:hover .aba:nth-child(2) .aba-rotulo { transition-delay: .11s; }
+  .topo:hover .aba:nth-child(3) .aba-rotulo { transition-delay: .14s; }
+  .topo:hover .aba:nth-child(4) .aba-rotulo { transition-delay: .17s; }
+  .topo:hover .aba:nth-child(5) .aba-rotulo { transition-delay: .2s; }
+  .topo:hover .aba:nth-child(6) .aba-rotulo { transition-delay: .23s; }
+  .topo:hover .aba:nth-child(7) .aba-rotulo { transition-delay: .26s; }
+
+  /* contador de tarefas: com o menu fechado, fica em cima do icone */
+  .aba .selo { position: absolute; top: 5px; left: 31px; margin: 0; transition: left .3s var(--suave); }
+  .aba.ativa .selo { background: rgb(var(--marca-3-rgb)); }
+  .topo:hover .aba .selo, .topo:focus-within .aba .selo { position: static; margin-left: auto; }
+
+  .botao-sair {
+    order: 2;
+    margin-top: auto;
+    width: auto;
+    min-width: 230px;
+    height: auto;
+    justify-content: flex-start;
+    gap: 15px;
+    padding: 12px 15px;
+    border-radius: 15px;
+    font: 500 14.5px/1 inherit;
+  }
+
+  .botao-sair .aba-rotulo { display: inline; }
+  .topo:hover .botao-sair .aba-rotulo, .topo:focus-within .botao-sair .aba-rotulo { transition-delay: .28s; }
+
+  main { margin-left: 92px; }
+  .rodape-acoes { left: 92px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tela.ativa > * { animation: none !important; }
+  .onda { display: none; }
+}
+
+/* celular estreito: as 7 abas precisam caber sem cortar a ultima */
+@media (max-width: 480px) {
+  .aba { padding: 8px 9px 10px; font-size: 11.5px; gap: 2px; }
+  .abas { gap: 0; padding-bottom: 2px; }
+}
+
+/* ---------------- janelas de escolha (modal): abre e FECHA com movimento ---------------- */
+
+.modal { animation: aparecer .22s ease; }
+.modal .modal-conteudo { animation: subirModal .34s var(--suave); }
+
+.modal.fechando { animation: sumir .2s ease forwards; pointer-events: none; }
+.modal.fechando .modal-conteudo { animation: descerModal .2s var(--suave) forwards; }
+
+@keyframes subirModal {
+  from { opacity: 0; transform: translateY(26px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes descerModal {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(18px) scale(.985); }
+}
+
+@keyframes sumir { from { opacity: 1; } to { opacity: 0; } }
+
+/* ---------------- listas e opcoes: tudo responde ao toque ---------------- */
+
+.opcao-produto, .opcao-preco, .loja-opcao, .resultado-busca button, .sugestao, .filtro, .item {
+  transition: background .25s var(--suave), border-color .25s var(--suave),
+              box-shadow .25s var(--suave), transform .25s var(--mola), color .25s var(--suave);
+}
+
+.opcao-produto:hover, .resultado-busca button:hover, .loja-opcao:hover {
+  border-color: rgba(var(--acento-rgb), .5);
+  background: rgba(var(--acento-rgb), .06);
+  transform: translateY(-1px);
+}
+
+.opcao-preco:hover { border-color: rgba(var(--acento-rgb), .45); transform: translateY(-2px); }
+.item:hover { box-shadow: var(--sombra-alta); }
+.tarefa:hover { transform: translateX(2px); }
+
+/* a etiqueta e o contador chamam atencao quando mudam */
+.etiqueta { transition: background .25s var(--suave), color .25s var(--suave); }
+.selo { animation: pulsarSelo .5s var(--mola); }
+
+@keyframes pulsarSelo {
+  0% { transform: scale(.4); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+/* o aviso que sobe no rodape */
+.aviso-flutuante { transition: opacity .3s var(--suave), transform .35s var(--mola); }
+
+/* linha do resumo e numeros */
+.resumo-item, .comparacao > div { transition: transform .3s var(--mola), box-shadow .3s var(--suave); }
+.comparacao > div:hover { transform: translateY(-2px); }
+
+/* total do rodape muda de valor: uma piscada curta no numero */
+.valor-total { transition: color .3s var(--suave); }

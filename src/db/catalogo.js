@@ -21,6 +21,10 @@ import { carregarConfig } from '../config.js';
 
 const TEMPO_DO_INDICE = 10 * 60 * 1000;   // 10 minutos
 const DIAS_DE_VENDA = 180;                // "o que sai hoje" = ultimos 6 meses
+const DIA = 24 * 3600 * 1000;
+// produto sem venda, sem entrada e sem mudanca de preco ha mais que isso nao
+// e SUGERIDO no orcamento (so aparece se a pessoa procurar por ele)
+export const DIAS_PARA_PARADO = 730;
 
 const indices = new Map();   // lojaId -> indice pronto
 
@@ -227,9 +231,61 @@ async function carregarVendas(produtos) {
   return { vendas, referencia: fim, porChave };
 }
 
+/** "15/03/2023" (texto do Solus) ou Date do banco -> milissegundos. */
+function quando(valor) {
+  if (!valor) return 0;
+  if (valor instanceof Date) return valor.getTime() || 0;
+  const br = String(valor).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (br) return new Date(Number(br[3]), Number(br[2]) - 1, Number(br[1])).getTime();
+  const data = new Date(valor).getTime();
+  return Number.isFinite(data) ? data : 0;
+}
+
+/**
+ * A ultima vez que ALGUMA coisa aconteceu com cada produto: venda (de qualquer
+ * epoca), entrada de nota, mudanca de preco, ou as datas que o proprio Solus
+ * anota no cadastro. Custa ~0,6s a cada 10 minutos, no maximo.
+ *
+ * Cada fonte vai num try separado: banco sem uma das tabelas so perde aquela
+ * informacao, nunca a busca inteira.
+ */
+async function carregarAtividade(produtos, porChave) {
+  const ultima = new Map();   // codigo -> ms
+  const marcar = (codigo, ms) => {
+    if (codigo && ms > (ultima.get(codigo) || 0)) ultima.set(codigo, ms);
+  };
+  const pelaChave = (chave) => {
+    const limpa = String(chave || '').trim();
+    return porChave.get(limpa) || porChave.get(semZeros(limpa));
+  };
+
+  const fontes = [
+    ['SELECT TRIM(PRODUTO) AS CHAVE, MAX(DATA) AS ULTIMA FROM ITEMPEDIDO GROUP BY 1', pelaChave],
+    ['SELECT TRIM(PRODUTO) AS CHAVE, MAX(DATA) AS ULTIMA FROM ENTRADA GROUP BY 1', pelaChave],
+    ['SELECT TRIM(BARRAS) AS CHAVE, MAX(DATA) AS ULTIMA FROM ALTERAPRECO GROUP BY 1', pelaChave],
+  ];
+  for (const [sql, paraCodigo] of fontes) {
+    try {
+      for (const linha of await consultar(sql)) marcar(paraCodigo(linha.CHAVE), quando(linha.ULTIMA));
+    } catch { /* tabela que esta versao do Solus nao tem */ }
+  }
+
+  try {
+    const linhas = await consultar('SELECT CODIGO, ULTIMAVENDA, ULTIMACOMPRA FROM PRODUTO');
+    for (const linha of linhas) {
+      const codigo = String(linha.CODIGO || '').trim();
+      marcar(codigo, quando(linha.ULTIMAVENDA));
+      marcar(codigo, quando(linha.ULTIMACOMPRA));
+    }
+  } catch { /* colunas que esta versao do Solus nao tem */ }
+
+  return ultima;
+}
+
 async function montarIndice() {
   const produtos = await carregarProdutos();
   const { vendas, referencia, porChave } = await carregarVendas(produtos);
+  const atividade = await carregarAtividade(produtos, porChave);
 
   // o "mais vendido" e relativo ao proprio catalogo da loja
   let maiorQuantidade = 1;
@@ -247,6 +303,24 @@ async function montarIndice() {
     produto.recencia = venda?.ultima
       ? Math.max(0, 1 - (referencia - venda.ultima) / (DIAS_DE_VENDA * 24 * 3600 * 1000))
       : 0;
+    produto.ultimaAtividade = atividade.get(produto.codigo) || 0;
+  }
+
+  // Produto sem data nenhuma pode ser velho (anterior as tabelas de historico)
+  // ou recem-cadastrado no Solus e ainda sem venda. O codigo e sequencial, entao
+  // quem tem codigo MAIOR que o ultimo produto parado com data e novo: fica.
+  const limiteParado = referencia - DIAS_PARA_PARADO * DIA;
+  const numero = (codigo) => (/^\d+$/.test(codigo) ? Number(codigo) : 0);
+  let maiorCodigoParado = 0;
+  for (const produto of produtos) {
+    if (produto.ultimaAtividade && produto.ultimaAtividade < limiteParado) {
+      maiorCodigoParado = Math.max(maiorCodigoParado, numero(produto.codigo));
+    }
+  }
+  for (const produto of produtos) {
+    produto.parado = produto.ultimaAtividade
+      ? produto.ultimaAtividade < limiteParado
+      : numero(produto.codigo) > 0 && numero(produto.codigo) <= maiorCodigoParado;
   }
 
   const porCodigo = new Map(produtos.map((p) => [p.codigo, p]));
@@ -294,7 +368,7 @@ const ehMedida = (palavra) => /^[\d.]+(L|ML|KG|G|M|CM)$/.test(palavra);
  * `preferir` sao codigos que este cliente ja comprou: quando a busca fica em
  * duvida, o que ele levou da outra vez ganha.
  */
-export async function procurarNoCatalogo(texto, { limite = 12, preferir = [] } = {}) {
+export async function procurarNoCatalogo(texto, { limite = 12, preferir = [], esconderParados = false } = {}) {
   const indice = await indiceDoCatalogo();
   const procuradas = palavrasCanonicas(texto);
   const fortes = procuradas.filter(ehForte);
@@ -308,6 +382,9 @@ export async function procurarNoCatalogo(texto, { limite = 12, preferir = [] } =
   for (const produto of indice.produtos) {
     const doProduto = produto.palavras;
     if (!doProduto.length) continue;
+    // na SUGESTAO automatica, produto morto ha 2 anos nem entra na disputa
+    // (na pesquisa que a pessoa faz na mao ele aparece, marcado como parado)
+    if (esconderParados && produto.parado) continue;
 
     let soma = 0;
     let exatas = 0;
@@ -353,6 +430,7 @@ export async function procurarNoCatalogo(texto, { limite = 12, preferir = [] } =
     nota += produto.recencia * 0.10;
     if (produto.estoque > 0) nota += 0.03;
     if (produto.cancelado) nota -= 0.40;
+    if (produto.parado) nota -= 0.12;
 
     // o que este cliente ja levou ganha de todo o resto
     if (preferidas.has(produto.codigo)) nota += 0.35;
@@ -383,13 +461,21 @@ function formatar({ produto, nota, cobertura }) {
     ultimaVenda: produto.ultimaVenda || null,
     popularidade: produto.popularidade,
     referencia: produto.referenciaDeTempo,
+    parado: produto.parado,
+    ultimaAtividade: produto.ultimaAtividade || null,
   };
 }
 
 /** Um resumo curto do porque o produto apareceu (aparece na tela). */
 export function motivoDaSugestao(achado, referencia = 0) {
-  if (!achado || !achado.ultimaVenda) return '';
+  if (!achado) return '';
   referencia = referencia || achado.referencia || Date.now();
+  if (achado.parado) {
+    if (!achado.ultimaAtividade) return 'parado há anos';
+    const anos = Math.floor((referencia - achado.ultimaAtividade) / (365 * DIA));
+    return `parado há ${anos} ${anos === 1 ? 'ano' : 'anos'}`;
+  }
+  if (!achado.ultimaVenda) return '';
   const dias = Math.floor((referencia - achado.ultimaVenda) / (24 * 3600 * 1000));
   if (dias <= 45 && achado.popularidade >= 0.5) return 'é o que mais sai';
   if (dias <= 7) return 'vendido nesta semana';

@@ -34,8 +34,9 @@ const CHAVES_DA_LOJA = ['banco', 'loja', 'notas', 'empresa'];
 
 const PADRAO_GLOBAL = {
   ia: {
-    chave: '',                        // chave do Google Gemini (tela de Ajustes)
-    modelo: 'gemini-flash-latest',    // le foto e PDF; e o mais barato da familia
+    provedor: '',                     // 'openai' (ChatGPT) ou 'gemini'; vazio = descobre pela chave
+    chave: '',                        // chave da IA (tela de Ajustes): sk-... e da OpenAI
+    modelo: '',                       // vazio = o recomendado de cada IA (gpt-5.4-mini / gemini-flash-latest)
   },
   regras: {
     manterMargem: true,         // sugerir preco que mantem a mesma margem de hoje

@@ -14,7 +14,9 @@ import { lerListaDeCompras } from './leitura/ia.js';
 import { lerListaDigitada } from './leitura/lista-texto.js';
 import {
   montarOrcamento, recalcularItem, montarItemComProduto, trocarClienteDoOrcamento, resumir,
+  nomeDoClienteDoOrcamento, nomeDoArquivoDoOrcamento,
 } from './logica/orcamento.js';
+import { gerarExcelOrcamento } from './excel-orcamento.js';
 import {
   buscarPorCodigo, buscarPorDescricao, buscarPorBarras, semCustoParaQuemNaoPodeVer,
 } from './db/produtos.js';
@@ -127,6 +129,7 @@ rotas.post('/api/orcamento/montar', exigirLogin, upload.array('arquivos', 10), a
     const textoDigitado = String(req.body.texto || '').trim();
     const observacao = String(req.body.observacao || '').trim();
     const codigoCliente = String(req.body.cliente || '').trim();
+    const nomeCliente = String(req.body.nomeCliente || '').trim();
 
     const arquivos = (req.files || [])
       .filter((a) => TIPOS_ACEITOS.includes(a.mimetype))
@@ -149,6 +152,7 @@ rotas.post('/api/orcamento/montar', exigirLogin, upload.array('arquivos', 10), a
     const orcamento = await montarOrcamento({
       lista,
       cliente,
+      nomeCliente,
       mostrarCusto: req.operador.permissoes.verCusto,
     });
     orcamento.observacao = observacao;
@@ -186,13 +190,13 @@ rotas.post('/api/orcamento/escolher', exigirLogin, async (req, res) => {
 /** Escolher (ou trocar) o cliente com o orcamento ja montado na tela. */
 rotas.post('/api/orcamento/cliente', exigirLogin, async (req, res) => {
   try {
-    const { id, codigoCliente } = req.body;
+    const { id, codigoCliente, nomeCliente } = req.body;
     const orcamento = pegar(id);
 
     const cliente = codigoCliente ? await buscarClientePorCodigo(codigoCliente) : null;
     if (codigoCliente && !cliente) throw new Error('Cliente nao encontrado.');
 
-    await trocarClienteDoOrcamento(orcamento, cliente, req.operador.permissoes.verCusto);
+    await trocarClienteDoOrcamento(orcamento, cliente, req.operador.permissoes.verCusto, nomeCliente);
     res.json({ ok: true, orcamento, resumo: orcamento.resumo });
   } catch (e) { erro(res, e); }
 });
@@ -254,6 +258,14 @@ rotas.post('/api/orcamento/gravar', exigirLogin, exigirPermissao('fazerOrcamento
     const dadosPagamento = { ...(pagamento || {}) };
     if (!dadosPagamento.observacao) dadosPagamento.observacao = orcamento.observacao || '';
 
+    // sem cadastro, no Solus entra como CONSUMIDOR - o nome vai na observacao
+    // para dar para achar esse orcamento na lista do Solus depois
+    if (!orcamento.cliente && orcamento.nomeCliente
+      && !dadosPagamento.observacao.toUpperCase().includes(orcamento.nomeCliente.toUpperCase())) {
+      dadosPagamento.observacao = `Cliente: ${orcamento.nomeCliente}`
+        + (dadosPagamento.observacao ? ` - ${dadosPagamento.observacao}` : '');
+    }
+
     const resultado = await gravarOrcamento({
       orcamento,
       operador: req.operador,
@@ -265,7 +277,8 @@ rotas.post('/api/orcamento/gravar', exigirLogin, exigirPermissao('fazerOrcamento
     // passa a acompanhar: vira tarefa ate a venda ser finalizada e a nota sair
     acompanharOrcamento({
       numero: resultado.numero,
-      cliente: resultado.cliente,
+      // na aba Tarefas aparece "Dona Maria", nao um monte de CONSUMIDOR iguais
+      cliente: orcamento.cliente ? resultado.cliente : nomeDoClienteDoOrcamento(orcamento),
       codigoCliente: resultado.codigoCliente,
       celular: orcamento.cliente?.celular || orcamento.cliente?.telefone || '',
       total: resultado.total,
@@ -289,10 +302,28 @@ rotas.get('/api/orcamento/:id/pdf', exigirLogin, async (req, res) => {
       validadeDias: Number(req.query.validade) || 7,
     });
 
-    const nome = `orcamento-${orcamento.numero || 'sem-numero'}.pdf`;
+    const nome = nomeDoArquivoDoOrcamento(orcamento, 'pdf');
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${req.query.baixar ? 'attachment' : 'inline'}; filename="${nome}"`);
     res.send(pdf);
+  } catch (e) { erro(res, e); }
+});
+
+/** Planilha do Excel (.xlsx) do orcamento - tem cliente que prefere receber assim. */
+rotas.get('/api/orcamento/:id/excel', exigirLogin, async (req, res) => {
+  try {
+    const orcamento = pegar(req.params.id);
+    const planilha = await gerarExcelOrcamento({
+      orcamento,
+      operador: req.operador,
+      loja: await dadosDaLoja(),
+      validadeDias: Number(orcamento.pagamento?.validadeDias || req.query.validade) || 7,
+    });
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition',
+      `attachment; filename="${nomeDoArquivoDoOrcamento(orcamento, 'xlsx')}"`);
+    res.send(planilha);
   } catch (e) { erro(res, e); }
 });
 

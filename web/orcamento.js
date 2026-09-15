@@ -5,10 +5,14 @@ import {
   animarSeForAPrimeiraVez, permitirAnimarDeNovo,
 } from './comum.js';
 import { icone } from './icones.js';
+import { mostrarProgressoNoCartao } from './progresso.js';
+import { ligarColar } from './colar.js';
+import { fecharModal } from './efeitos.js';
 
 const estado = {
   arquivos: [],
   cliente: null,
+  nomeLivre: '',          // nome de quem nao tem cadastro (sai no PDF/Excel)
   orcamento: null,
   id: null,
   itemEmEscolha: null,
@@ -29,19 +33,30 @@ async function buscarClientes() {
   area.innerHTML = '<p class="ajuda">Procurando...</p>';
   try {
     const { clientes } = await api('/api/clientes?q=' + encodeURIComponent(termo));
+    const digitos = termo.replace(/\D/g, '');
+    // nome digitado (nao CPF/CNPJ) pode virar o nome do orcamento sem cadastrar
+    const podeUsarSoONome = digitos.length < 11 && termo.length >= 3;
+    const botaoSoNome = podeUsarSoONome
+      ? `<button class="usar-so-nome" id="btn-so-nome">
+           ${icone('pessoa', 18)}
+           <span><strong>Usar só o nome “${escapar(termo)}”</strong>
+           <em>sem cadastrar — sai no PDF e no Excel; no Solus entra como consumidor</em></span>
+         </button>`
+      : '';
+
     if (!clientes.length) {
-      const digitos = termo.replace(/\D/g, '');
-      area.innerHTML = digitos.length === 14
+      area.innerHTML = (digitos.length === 14
         ? `<p class="ajuda">Nao achei esse CNPJ no Solus.</p>
            <button class="botao principal largura-total" id="btn-cadastrar-desse">
              Buscar na Receita e cadastrar
            </button>`
-        : '<p class="ajuda">Nenhum cliente encontrado.</p>';
+        : '<p class="ajuda">Nenhum cliente cadastrado com esse nome.</p>') + botaoSoNome;
       $('#btn-cadastrar-desse')?.addEventListener('click', () => {
         mostrarTela('cliente');
         $('#cnpj-consulta').value = termo;
         consultarCnpj();
       });
+      $('#btn-so-nome')?.addEventListener('click', () => usarSoONome(termo));
       return;
     }
 
@@ -51,20 +66,37 @@ async function buscarClientes() {
         ${c.fantasia ? `<br><em>${escapar(c.fantasia)}</em>` : ''}
         <br>cod. ${escapar(c.codigo)} ${c.cpfCnpj ? '· ' + escapar(c.cpfCnpj) : ''}
         ${c.cidade ? '· ' + escapar(c.cidade) + '/' + escapar(c.uf) : ''}
-      </button>`).join('');
+      </button>`).join('') + botaoSoNome;
 
     area.querySelectorAll('[data-cliente]').forEach((botao) => {
       botao.addEventListener('click', () => escolherCliente(botao.dataset.cliente));
     });
+    $('#btn-so-nome')?.addEventListener('click', () => usarSoONome(termo));
   } catch (erro) {
     area.innerHTML = `<p class="ajuda">${escapar(erro.message)}</p>`;
   }
+}
+
+/**
+ * Orcamento para quem nao tem cadastro ("Dona Maria", "Escola X").
+ * Cadastrar so para mandar um orcamento da trabalho e suja o Solus de cliente
+ * que talvez nunca compre. O nome sai no PDF, no Excel e no nome do arquivo.
+ */
+async function usarSoONome(nome) {
+  estado.cliente = null;
+  estado.nomeLivre = String(nome || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  $('#resultado-clientes').innerHTML = '';
+  $('#busca-cliente').value = '';
+  desenharClienteEscolhido();
+  carregarOpcoesDePagamento();
+  await aplicarClienteNoOrcamento();
 }
 
 async function escolherCliente(codigo) {
   try {
     const { cliente, compras } = await api('/api/clientes/' + encodeURIComponent(codigo));
     estado.cliente = cliente;
+    estado.nomeLivre = '';
     $('#resultado-clientes').innerHTML = '';
     $('#busca-cliente').value = '';
     desenharClienteEscolhido(compras);
@@ -85,14 +117,20 @@ async function aplicarClienteNoOrcamento() {
   try {
     const { orcamento } = await api('/api/orcamento/cliente', {
       method: 'POST',
-      body: JSON.stringify({ id: estado.id, codigoCliente: estado.cliente?.codigo || '' }),
+      body: JSON.stringify({
+        id: estado.id,
+        codigoCliente: estado.cliente?.codigo || '',
+        nomeCliente: estado.cliente ? '' : estado.nomeLivre,
+      }),
     });
     estado.orcamento = orcamento;
     desenharOrcamento();
     mostrarTela('conferir-orcamento');
     avisar(estado.cliente
       ? `Preços conferidos com o histórico de ${estado.cliente.nome}.`
-      : 'Orçamento voltou para consumidor.', 'ok');
+      : estado.nomeLivre
+        ? `Orçamento em nome de ${estado.nomeLivre} (sem cadastro).`
+        : 'Orçamento voltou para consumidor.', 'ok');
   } catch (erro) {
     avisar(erro.message, 'erro');
   }
@@ -100,6 +138,24 @@ async function aplicarClienteNoOrcamento() {
 
 function desenharClienteEscolhido(compras = []) {
   const area = $('#cliente-escolhido');
+  if (!estado.cliente && estado.nomeLivre) {
+    area.classList.remove('escondido');
+    area.innerHTML = `
+      <div class="cliente-cartao">
+        <div>
+          <strong>${escapar(estado.nomeLivre)}</strong><br>
+          <span class="etiqueta aviso">sem cadastro</span>
+          <span class="ajuda">no Solus entra como consumidor</span>
+        </div>
+        <button class="botao secundario" id="btn-tirar-cliente">Trocar</button>
+      </div>`;
+    $('#btn-tirar-cliente').addEventListener('click', async () => {
+      estado.nomeLivre = '';
+      desenharClienteEscolhido();
+      await aplicarClienteNoOrcamento();
+    });
+    return;
+  }
   if (!estado.cliente) {
     area.innerHTML = '';
     area.classList.add('escondido');
@@ -146,6 +202,9 @@ $('#camera-lista').addEventListener('change', (e) => adicionarArquivos(e.target.
   areaLista.addEventListener(evento, (e) => { e.preventDefault(); areaLista.classList.remove('arrastando'); }));
 areaLista.addEventListener('drop', (e) => adicionarArquivos(e.dataTransfer.files));
 
+// print do WhatsApp copiado: Ctrl+V e a imagem entra, sem salvar em pasta
+ligarColar({ tela: 'orcamento', aoColar: adicionarArquivos, destacar: areaLista });
+
 function adicionarArquivos(lista) {
   for (const arquivo of lista) {
     if (estado.arquivos.some((a) => a.name === arquivo.name && a.size === arquivo.size)) continue;
@@ -180,9 +239,26 @@ $('#btn-montar').addEventListener('click', async () => {
   dados.append('texto', $('#texto-lista').value);
   dados.append('observacao', $('#obs-lista').value);
   if (estado.cliente) dados.append('cliente', estado.cliente.codigo);
+  else if (estado.nomeLivre) dados.append('nomeCliente', estado.nomeLivre);
 
-  $('#montando').classList.remove('escondido');
+  const temFoto = estado.arquivos.length > 0;
   $('#btn-montar').disabled = true;
+  const pararProgresso = mostrarProgressoNoCartao($('#montando'), {
+    titulo: 'Montando o orçamento',
+    etapas: [
+      temFoto ? 'A IA está lendo a lista' : 'Lendo a lista',
+      'Procurando cada item no catálogo',
+      'Colocando na frente o que mais sai',
+      ...(estado.cliente ? ['Vendo o que esse cliente já pagou'] : []),
+      'Conferindo preço e estoque',
+    ],
+    segundosPorEtapa: temFoto ? 4 : 1.5,
+    dicas: [
+      'Produto parado há mais de 2 anos não entra na sugestão.',
+      'Quando fico em dúvida entre dois produtos, pergunto em vez de chutar.',
+      'Lista digitada é lida na hora e não gasta IA.',
+    ],
+  });
 
   try {
     const resposta = await api('/api/orcamento/montar', { method: 'POST', body: dados });
@@ -195,7 +271,7 @@ $('#btn-montar').addEventListener('click', async () => {
   } catch (erro) {
     avisar(erro.message, 'erro');
   } finally {
-    $('#montando').classList.add('escondido');
+    pararProgresso();
     atualizarBotaoMontar();
   }
 });
@@ -214,6 +290,7 @@ export async function abrirOrcamentoMontado(id) {
   estado.id = id;
   estado.gravado = null;
   estado.cliente = orcamento.cliente || null;
+  estado.nomeLivre = orcamento.cliente ? '' : (orcamento.nomeCliente || '');
 
   // busca o histórico só para o cartão do cliente não mentir "sem compras anteriores"
   let compras = [];
@@ -243,14 +320,16 @@ function desenharOrcamento() {
   $('#cabecalho-orcamento').innerHTML = `
     <div class="cliente-cartao">
       <div>
-        <h2 style="margin:0">${escapar(orc.cliente?.nome || 'Consumidor')}</h2>
+        <h2 style="margin:0">${escapar(orc.cliente?.nome || orc.nomeCliente || 'Consumidor')}</h2>
         <p class="ajuda" style="margin:2px 0 0">
           ${resumo.totalItens} ${resumo.totalItens === 1 ? 'item' : 'itens'} na lista
-          ${orc.cliente ? '' : ' · sem cliente, não dá para ver o último preço dele'}
+          ${orc.cliente ? ''
+            : orc.nomeCliente ? ' · <span class="etiqueta aviso">sem cadastro</span> no Solus entra como consumidor'
+              : ' · sem cliente, não dá para ver o último preço dele'}
         </p>
       </div>
       <button class="botao secundario" id="btn-trocar-cliente-orcamento">
-        ${orc.cliente ? 'Trocar cliente' : 'Escolher cliente'}
+        ${orc.cliente || orc.nomeCliente ? 'Trocar cliente' : 'Escolher cliente'}
       </button>
     </div>
     ${faltam
@@ -410,7 +489,10 @@ function desenharItemOrcamento(item, indice, podeVerCusto) {
       <div class="linha-quantidade">
         <label class="campo">
           <span>Quantidade</span>
-          <input type="number" step="0.01" min="0" data-qtd="${indice}" value="${item.quantidade}">
+          <input type="number" inputmode="${item.fracionado ? 'decimal' : 'numeric'}"
+                 step="${item.fracionado ? '0.01' : '1'}" min="${item.fracionado ? '0.01' : '1'}"
+                 data-qtd="${indice}" value="${item.quantidade}"
+                 title="${item.fracionado ? 'Vendido em pedaço: aceita vírgula' : 'Quantidade em unidades'}">
         </label>
         <label class="campo">
           <span>Preço unitário</span>
@@ -511,7 +593,7 @@ function abrirProcuraProduto(indice) {
 }
 
 $('#btn-fechar-produto').addEventListener('click', () =>
-  $('#modal-produto').classList.add('escondido'));
+  fecharModal($('#modal-produto')));
 
 $('#btn-adicionar-item').addEventListener('click', () => abrirProcuraProduto(-1));
 
@@ -559,7 +641,7 @@ async function usarProduto(codigo) {
       estado.orcamento.resumo = resumo;
       desenharOrcamento();
     }
-    $('#modal-produto').classList.add('escondido');
+    fecharModal($('#modal-produto'));
   } catch (erro) {
     avisar(erro.message, 'erro');
   }
@@ -668,6 +750,7 @@ function lerPagamentoDaTela() {
 // ainda sem número de orçamento.
 $('#btn-whats-conferir').addEventListener('click', compartilhar);
 $('#btn-pdf-conferir').addEventListener('click', baixarPdf);
+$('#btn-excel-conferir').addEventListener('click', baixarExcel);
 $('#btn-imprimir-conferir').addEventListener('click', imprimir);
 
 $('#btn-gravar-orcamento').addEventListener('click', async () => {
@@ -723,13 +806,15 @@ function mostrarResultadoOrcamento(resultado) {
 
     <div class="acoes-pdf">
       <button class="botao principal" id="btn-compartilhar">${icone('compartilhar', 18)}<span>Enviar no WhatsApp</span></button>
-      <button class="botao secundario" id="btn-baixar-pdf">${icone('baixar', 18)}<span>Baixar PDF</span></button>
+      <button class="botao secundario" id="btn-baixar-pdf">${icone('pdf', 18)}<span>Baixar PDF</span></button>
+      <button class="botao excel" id="btn-baixar-excel">${icone('planilha', 18)}<span>Baixar Excel</span></button>
       <button class="botao secundario" id="btn-imprimir">${icone('imprimir', 18)}<span>Imprimir</span></button>
     </div>
     <button class="botao secundario largura-total" id="btn-novo-orcamento">Fazer outro orçamento</button>`;
 
   $('#btn-compartilhar').addEventListener('click', compartilhar);
   $('#btn-baixar-pdf').addEventListener('click', baixarPdf);
+  $('#btn-baixar-excel').addEventListener('click', baixarExcel);
   $('#btn-imprimir').addEventListener('click', imprimir);
   $('#btn-novo-orcamento').addEventListener('click', recomecar);
 
@@ -744,23 +829,64 @@ async function pegarPdf() {
   return resposta.blob();
 }
 
-function nomeDoArquivo() {
-  return `orcamento-${estado.gravado?.numero || 'sem-numero'}.pdf`;
+/** "orcamento-123-dona-maria.pdf" - o mesmo nome que o servidor usa. */
+function nomeDoArquivo(extensao = 'pdf') {
+  const orc = estado.orcamento || {};
+  const nome = orc.cliente?.nome || orc.nomeCliente || '';
+  const pedaco = nome ? '-' + nome.normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) : '';
+  return `orcamento-${estado.gravado?.numero || orc.numero || 'sem-numero'}${pedaco}.${extensao}`;
+}
+
+function salvarArquivo(blob, nome) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = nome;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
 async function baixarPdf() {
   try {
-    const blob = await pegarPdf();
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = nomeDoArquivo();
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    salvarArquivo(await pegarPdf(), nomeDoArquivo('pdf'));
   } catch (erro) {
     avisar(erro.message, 'erro');
+  }
+}
+
+/**
+ * Planilha do Excel. No celular abre o menu de compartilhar (da para mandar
+ * direto no WhatsApp do cliente); no computador, baixa o arquivo.
+ */
+async function baixarExcel(evento) {
+  const botao = evento?.currentTarget;
+  if (botao) botao.disabled = true;
+  try {
+    const resposta = await fetch(`/api/orcamento/${estado.id}/excel`, {
+      headers: { 'x-sessao': sessao.token },
+    });
+    if (!resposta.ok) {
+      const falha = await resposta.json().catch(() => ({}));
+      throw new Error(falha.erro || 'Não consegui gerar a planilha.');
+    }
+    const blob = await resposta.blob();
+    const nome = nomeDoArquivo('xlsx');
+    const arquivo = new File([blob], nome, { type: blob.type });
+
+    const celular = window.matchMedia?.('(pointer: coarse)').matches;
+    if (celular && navigator.canShare?.({ files: [arquivo] })) {
+      await navigator.share({ files: [arquivo], title: 'Orçamento' });
+      return;
+    }
+    salvarArquivo(blob, nome);
+    avisar('Planilha baixada: ' + nome, 'ok');
+  } catch (erro) {
+    if (erro.name !== 'AbortError') avisar(erro.message, 'erro');
+  } finally {
+    if (botao) botao.disabled = false;
   }
 }
 
@@ -782,7 +908,7 @@ async function imprimir() {
 async function compartilhar() {
   try {
     const blob = await pegarPdf();
-    const arquivo = new File([blob], nomeDoArquivo(), { type: 'application/pdf' });
+    const arquivo = new File([blob], nomeDoArquivo('pdf'), { type: 'application/pdf' });
     const { texto } = await api(`/api/orcamento/${estado.id}/texto`);
 
     // o jeito bom: abre o compartilhamento do celular e a pessoa escolhe o contato

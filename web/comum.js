@@ -73,6 +73,10 @@ export async function api(caminho, opcoes = {}) {
     throw new Error(dados?.erro || 'Sessao expirada. Entre de novo.');
   }
   if (!resposta.ok || dados?.ok === false) {
+    // credito da IA acabou: a faixa do topo avisa (ver aviso-ia.js)
+    if (/cr[eé]dito da conta/i.test(dados?.erro || '')) {
+      document.dispatchEvent(new CustomEvent('ia-falhou', { detail: dados.erro }));
+    }
     throw new Error(dados?.erro || `Erro ${resposta.status}`);
   }
   return dados;

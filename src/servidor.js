@@ -20,6 +20,7 @@ import { invalidarCatalogo } from './db/catalogo.js';
 import { aplicarNota, desfazer } from './db/gravacao.js';
 import { lerXmlNfe, pareceXmlNfe } from './leitura/xml.js';
 import { lerDocumentoComIA, testarChave, listarModelos, interpretarObservacao } from './leitura/ia.js';
+import { provedorDaIA, situacaoDaIA, MENSAGEM_SEM_CREDITO } from './leitura/openai.js';
 import { montarConferencia } from './logica/conferencia.js';
 import { analisarItem } from './logica/precos.js';
 import {
@@ -127,8 +128,10 @@ app.post('/api/ler-nota', exigirLogin, upload.array('arquivos', 10), async (req,
       try {
         ajustes = await interpretarObservacao(observacao, nota);
       } catch (falha) {
-        // sem a IA a nota continua valendo; so nao aplica o ajuste
+        // sem a IA a nota continua valendo; so nao aplica o ajuste - mas AVISA.
+        // Antes isso era silencioso e a nota entrava sem o DIFAL escrito.
         console.error('[observacao]', falha.message);
+        ajustes = { falhou: true, temAjuste: false, motivo: falha.message };
       }
     }
 
@@ -335,14 +338,17 @@ app.get('/api/config', exigirLogin, (req, res) => {
   const cfg = carregarConfig();
   // nao devolve a chave inteira da IA, so o final, para conferencia
   const chave = cfg.ia?.chave || '';
+  const { chaveGemini, ...iaSemChaves } = cfg.ia || {};
   res.json({
     ok: true,
     config: {
       ...cfg,
       ia: {
-        ...cfg.ia,
+        ...iaSemChaves,
         chave: chave ? `...${chave.slice(-6)}` : '',
         temChave: Boolean(chave),
+        provedor: provedorDaIA(cfg),
+        nomeDaIA: provedorDaIA(cfg) === 'openai' ? 'ChatGPT (OpenAI)' : 'Gemini (Google)',
       },
       banco: undefined,     // o banco de cada loja e escolhido em Configurar lojas
     },
@@ -356,7 +362,23 @@ app.post('/api/config', exigirLogin, exigirPermissao('gerente'), (req, res) => {
 
     // campos mascarados: se o usuario nao digitou de novo, mantem o que ja estava
     delete novo.banco;    // o banco so muda pela tela de Configurar lojas
-    if (novo.ia?.chave?.startsWith('...')) novo.ia.chave = atual.ia.chave;
+    if (novo.ia) {
+      delete novo.ia.chaveGemini;          // nunca vem da tela (e nunca vai para ela)
+      delete novo.ia.temChave;
+      delete novo.ia.nomeDaIA;
+      if (novo.ia.chave?.startsWith('...')) {
+        novo.ia.chave = atual.ia?.chave;
+        novo.ia.provedor = provedorDaIA(atual);
+      } else if (novo.ia.chave) {
+        // chave nova: a IA certa sai do formato dela (sk-... e da OpenAI)
+        novo.ia.provedor = novo.ia.chave.trim().startsWith('sk-') ? 'openai' : 'gemini';
+        if (novo.ia.provedor !== provedorDaIA(atual)) novo.ia.modelo = '';
+      }
+      // modelo de uma IA escolhido com chave da outra: volta para o recomendado
+      const ehDaOpenAI = /^gpt-|^o\d/.test(novo.ia.modelo || '');
+      if (novo.ia.modelo && (novo.ia.provedor === 'openai') !== ehDaOpenAI) novo.ia.modelo = '';
+      novo.ia.chaveGemini = atual.ia?.chaveGemini;
+    }
 
     const salvo = salvarConfig(novo);
     reiniciarConexao();
@@ -464,6 +486,18 @@ app.get('/api/testar-ia', exigirLogin, async (req, res) => {
   } catch (erro) {
     responderErro(res, erro);
   }
+});
+
+/** A tela pergunta de tempos em tempos: se o credito acabou, mostra a faixa. */
+app.get('/api/ia/situacao', exigirLogin, (req, res) => {
+  const situacao = situacaoDaIA();
+  res.json({
+    ok: true,
+    provedor: provedorDaIA(),
+    creditoAcabou: situacao.acabou,
+    desde: situacao.quando || null,
+    mensagem: situacao.acabou ? MENSAGEM_SEM_CREDITO : '',
+  });
 });
 
 app.get('/api/modelos-ia', exigirLogin, async (req, res) => {

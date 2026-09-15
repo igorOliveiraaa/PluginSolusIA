@@ -1,11 +1,14 @@
 /* Tela de entrada de nota: ler a nota, conferir item a item e gravar no Solus. */
 
 import {
-  $, $$, api, dinheiro, escapar, mostrarTela, avisar,
+  $, $$, api, dinheiro, escapar, mostrarTela, avisar, sessao,
   animarSeForAPrimeiraVez, permitirAnimarDeNovo,
 } from './comum.js';
 import { icone, aplicarIcones } from './icones.js';
 import { abrirConfiguracaoDeLojas } from './login.js';
+import { mostrarProgressoNoCartao } from './progresso.js';
+import { ligarColar } from './colar.js';
+import { fecharModal } from './efeitos.js';
 
 const estado = {
   arquivos: [],
@@ -58,6 +61,9 @@ $('#camera').addEventListener('change', (e) => adicionarArquivos(e.target.files)
 
 areaArquivo.addEventListener('drop', (e) => adicionarArquivos(e.dataTransfer.files));
 
+// foto ou print da nota copiado: Ctrl+V e ele entra, sem salvar em pasta
+ligarColar({ tela: 'enviar', aoColar: adicionarArquivos, destacar: areaArquivo });
+
 function adicionarArquivos(lista) {
   for (const arquivo of lista) {
     if (estado.arquivos.some((a) => a.name === arquivo.name && a.size === arquivo.size)) continue;
@@ -97,13 +103,28 @@ $('#btn-ler').addEventListener('click', async () => {
   dados.append('observacao', $('#observacao').value);
 
   const temXml = estado.arquivos.some((a) => a.name.toLowerCase().endsWith('.xml'));
-  $('#texto-carregando').textContent = temXml
-    ? 'Lendo o XML da nota...'
-    : 'A IA esta lendo a nota...';
+  const temObservacao = Boolean($('#observacao').value.trim());
 
-  $('#carregando').classList.remove('escondido');
   $('#erro-leitura').classList.add('escondido');
   $('#btn-ler').disabled = true;
+  const pararProgresso = mostrarProgressoNoCartao($('#carregando'), {
+    titulo: temXml ? 'Lendo a nota' : 'A IA está lendo a nota',
+    etapas: [
+      temXml ? 'Abrindo o XML da nota' : 'Lendo a foto/PDF da nota',
+      'Separando os itens e convertendo caixa em unidade',
+      'Procurando cada produto no Solus',
+      'Calculando o custo com frete e impostos',
+      ...(temObservacao ? ['Aplicando a sua observação'] : []),
+      'Montando a conferência',
+    ],
+    // XML sai em 1 ou 2 segundos; leitura por IA leva bem mais
+    segundosPorEtapa: temXml ? 1.2 : 5,
+    dicas: temXml ? [] : [
+      'Foto nítida, de frente e com boa luz é lida mais rápido.',
+      'Com o XML a leitura é exata e não gasta IA.',
+      'Nada é gravado agora — você confere tudo antes.',
+    ],
+  });
 
   try {
     const resposta = await fetch('/api/ler-nota', { method: 'POST', body: dados });
@@ -126,9 +147,10 @@ $('#btn-ler').addEventListener('click', async () => {
     mostrarTela('conferencia');
   } catch (erro) {
     $('#erro-leitura').innerHTML = `<strong>Não deu certo:</strong><br>${escapar(erro.message)}`;
+    if (/cr[eé]dito da conta/i.test(erro.message)) document.dispatchEvent(new CustomEvent('ia-falhou', { detail: erro.message }));
     $('#erro-leitura').classList.remove('escondido');
   } finally {
-    $('#carregando').classList.add('escondido');
+    pararProgresso();
     $('#btn-ler').disabled = false;
   }
 });
@@ -173,14 +195,7 @@ function desenharConferencia(jaAplicada) {
            </div>`)
     : '';
 
-  const ajustes = nota.ajustes
-    ? `<div class="item-aviso info" style="margin-top:10px">
-         <strong>Entendi da sua observação:</strong> ${escapar(nota.ajustes.entendi)}
-         ${nota.ajustes.naoEntendi
-           ? '<br><em>Não usei esta parte: ' + escapar(nota.ajustes.naoEntendi) + '</em>' : ''}
-         <br><em>A conta foi feita pelo sistema; confira os itens abaixo.</em>
-       </div>`
-    : '';
+  const ajustes = resumoDaObservacao(nota);
 
   $('#resumo-nota').innerHTML = `
     <div class="resumo-grade">
@@ -204,6 +219,71 @@ function desenharConferencia(jaAplicada) {
     ${conferencia}${ajustes}`;
 
   desenharItens();
+}
+
+/**
+ * "O que fiz com a sua observação": o resumo que abre a tela de conferência.
+ * Diz com números o que entrou no custo (ex.: o DIFAL de 6% calculado em cima
+ * de cada produto) - e, quando nada entrou, diz isso também, em vez de calar.
+ */
+function resumoDaObservacao(nota) {
+  const ajuste = nota.ajustes;
+  if (!ajuste) return '';
+
+  if (ajuste.falhou) {
+    return `
+      <div class="resumo-observacao alerta">
+        <div class="resumo-observacao-icone">${icone('aviso', 20)}</div>
+        <div>
+          <strong>Não consegui ler a sua observação</strong>
+          <p>A IA não respondeu agora, então <strong>nada do que você escreveu entrou no custo</strong>.
+             Se era um imposto ou taxa, confira os valores antes de gravar ou mande a nota de novo daqui a pouco.</p>
+        </div>
+      </div>`;
+  }
+
+  const itens = nota.itens || [];
+  const soma = (campo) => itens.reduce((total, i) => total + (Number(i.ajusteValores?.[campo]) || 0), 0);
+  const quantos = (campo) => itens.filter((i) => Number(i.ajusteValores?.[campo])).length;
+  const linhas = [];
+
+  if (ajuste.percentualNaNota || quantos('percentual')) {
+    const nome = ajuste.nomeDoPercentual || 'Acréscimo';
+    const pct = ajuste.percentualNaNota
+      ? String(ajuste.percentualNaNota).replace('.', ',') + '%' : 'a porcentagem';
+    linhas.push(`<li><strong>${escapar(nome)} de ${escapar(pct)}</strong> calculado em cima de cada produto:
+      <strong>+ ${dinheiro(soma('percentual'))}</strong> no total, em ${quantos('percentual')}
+      ${quantos('percentual') === 1 ? 'item' : 'itens'}. Já está no custo de cada um.</li>`);
+  }
+  if (quantos('daNota')) {
+    const valor = soma('daNota');
+    linhas.push(`<li><strong>${valor >= 0 ? '+' : '-'} ${dinheiro(Math.abs(valor))}</strong> da nota inteira,
+      dividido entre ${quantos('daNota')} itens na proporção do valor de cada um.</li>`);
+  }
+  if (quantos('doItem')) {
+    linhas.push(`<li>Valor lançado em <strong>${quantos('doItem')}
+      ${quantos('doItem') === 1 ? 'item específico' : 'itens específicos'}</strong>.</li>`);
+  }
+  const caixas = (ajuste.porItem || []).filter((a) => a.unidadesPorCaixa > 1);
+  if (caixas.length) {
+    linhas.push(`<li>Quantidade por caixa corrigida em <strong>${caixas.length}
+      ${caixas.length === 1 ? 'item' : 'itens'}</strong> (o custo por unidade foi refeito).</li>`);
+  }
+
+  const semMudanca = !linhas.length;
+  return `
+    <div class="resumo-observacao${semMudanca ? ' neutro' : ''}">
+      <div class="resumo-observacao-icone">${icone(semMudanca ? 'conversa' : 'calculadora', 20)}</div>
+      <div>
+        <strong>O que fiz com a sua observação</strong>
+        ${ajuste.entendi ? `<p class="resumo-observacao-entendi">“${escapar(ajuste.entendi)}”</p>` : ''}
+        ${semMudanca
+          ? '<p>Nenhum valor foi mudado — entendi como um recado.</p>'
+          : `<ul>${linhas.join('')}</ul>`}
+        ${ajuste.naoEntendi ? `<p class="ajuda">Não usei esta parte: ${escapar(ajuste.naoEntendi)}</p>` : ''}
+        ${semMudanca ? '' : '<p class="ajuda">A conta foi feita pelo sistema, não pela IA. O detalhe está em cada item abaixo.</p>'}
+      </div>
+    </div>`;
 }
 
 function desenharItens() {
@@ -580,7 +660,7 @@ function abrirBusca(indice) {
 }
 
 $('#btn-fechar-modal').addEventListener('click', () => {
-  $('#modal-busca').classList.add('escondido');
+  fecharModal($('#modal-busca'));
 });
 
 let temporizadorBusca;
@@ -645,7 +725,7 @@ async function escolherProduto(codigo) {
       origemPreco: resultado.item.analise.recomendacao,
     };
 
-    $('#modal-busca').classList.add('escondido');
+    fecharModal($('#modal-busca'));
     desenharItens();
   } catch (erro) {
     avisar('Não deu para trocar: ' + erro.message, 'erro');
@@ -730,6 +810,7 @@ function mostrarResultado(resultado) {
         <div class="resumo-rotulo">repetidos desativados</div>
       </div>
     </div>
+    ${resumoFiscal(resultado.registros)}
     <div class="cartao-etiquetas">
       <div>
         <strong>Etiquetas de prateleira</strong>
@@ -761,6 +842,28 @@ function mostrarResultado(resultado) {
   });
 
   mostrarTela('resultado');
+}
+
+/**
+ * Quais produtos estavam sem CST/IBS-CBS/"acessa valores" e receberam o padrao.
+ * Aparece so quando algo foi preenchido - e o que evita a nota de venda
+ * ser recusada depois por produto com campo fiscal vazio.
+ */
+function resumoFiscal(registros = []) {
+  const preenchidos = registros.filter((r) => r.fiscalPreenchido?.length);
+  if (!preenchidos.length) return '';
+  const campos = [...new Set(preenchidos.flatMap((r) => r.fiscalPreenchido))];
+  return `
+    <div class="resumo-observacao neutro">
+      <div class="resumo-observacao-icone">${icone('certo', 20)}</div>
+      <div>
+        <strong>Dados fiscais completados em ${preenchidos.length}
+          ${preenchidos.length === 1 ? 'produto' : 'produtos'}</strong>
+        <p>Estavam vazios e receberam o padrão da loja
+           (CST 102, CST Cbs/Ibs 000, classificação 000001, acessa valores S, baixa estoque S):
+           ${escapar(campos.join(', '))}. O que já estava preenchido não foi mexido.</p>
+      </div>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1059,8 +1162,10 @@ async function carregarConfig() {
     $('#cfg-ipi').checked = config.regras.somarIPI !== false;
     $('#cfg-st').checked = config.regras.somarST !== false;
 
+    $('#nome-da-ia').textContent = config.ia.temChave ? config.ia.nomeDaIA : 'sem chave';
     const seletor = $('#cfg-modelo-ia');
-    seletor.innerHTML = `<option value="${escapar(config.ia.modelo)}">${escapar(config.ia.modelo)}</option>`;
+    seletor.innerHTML = opcaoRecomendada(config.ia.modelo)
+      + (config.ia.modelo ? `<option value="${escapar(config.ia.modelo)}" selected>${escapar(config.ia.modelo)}</option>` : '');
     if (config.ia.temChave) carregarModelos(config.ia.modelo);
 
     desenharLogo();
@@ -1092,7 +1197,7 @@ async function desenharLogo() {
 
   area.innerHTML = tem
     ? `<div class="logo-previa">
-         <img src="/api/logo?v=${quando}" alt="Logo da loja">
+         <img src="/api/logo?v=${quando}&sessao=${encodeURIComponent(sessao.token)}" alt="Logo da loja">
          <div class="logo-acoes">
            <button class="botao secundario" id="btn-trocar-logo">Trocar imagem</button>
            <button class="botao secundario" id="btn-tirar-logo">Tirar o logo</button>
@@ -1118,8 +1223,9 @@ $('#arquivo-logo')?.addEventListener('change', async (evento) => {
   dados.append('logo', arquivo);
   try {
     await api('/api/logo', { method: 'POST', body: dados });
-    avisar('Logo salvo. Ele já sai no próximo orçamento.');
+    avisar('Logo salvo. Ele já sai no próximo orçamento e as cores do Plugin seguem ele.');
     desenharLogo();
+    document.dispatchEvent(new CustomEvent('logo-mudou'));
   } catch (erro) {
     avisar(erro.message, 'erro');
   }
@@ -1131,9 +1237,15 @@ async function tirarLogo() {
     await api('/api/logo', { method: 'DELETE' });
     avisar('Logo removido.');
     desenharLogo();
+    document.dispatchEvent(new CustomEvent('logo-mudou'));
   } catch (erro) {
     avisar(erro.message, 'erro');
   }
+}
+
+/** Valor vazio = cada IA usa o modelo que foi testado e escolhido para ela. */
+function opcaoRecomendada(atual) {
+  return `<option value="" ${atual ? '' : 'selected'}>Recomendado (mais rápido e correto)</option>`;
 }
 
 async function carregarModelos(atual) {
@@ -1141,7 +1253,7 @@ async function carregarModelos(atual) {
     const resposta = await fetch('/api/modelos-ia');
     const resultado = await resposta.json();
     if (!resultado.ok || !resultado.modelos?.length) return;
-    $('#cfg-modelo-ia').innerHTML = resultado.modelos
+    $('#cfg-modelo-ia').innerHTML = opcaoRecomendada(atual) + resultado.modelos
       .map((m) => `<option value="${escapar(m)}" ${m === atual ? 'selected' : ''}>${escapar(m)}</option>`)
       .join('');
   } catch { /* sem chave valida ainda: fica so o modelo atual na lista */ }
@@ -1232,7 +1344,8 @@ $('#btn-testar-ia').addEventListener('click', async () => {
     const resposta = await fetch('/api/testar-ia');
     const resultado = await resposta.json();
     if (!resultado.ok) throw new Error(resultado.erro);
-    mostrarTeste(area, true, `Chave funcionando. ${resultado.modelosDisponiveis} modelos disponíveis.`);
+    mostrarTeste(area, true, `Chave funcionando: ${resultado.nomeDaIA || 'IA'}. ${resultado.modelosDisponiveis} modelos disponíveis.`);
+    if (resultado.nomeDaIA) $('#nome-da-ia').textContent = resultado.nomeDaIA;
     carregarModelos($('#cfg-modelo-ia').value);
   } catch (erro) {
     mostrarTeste(area, false, erro.message);

@@ -1,4 +1,4 @@
-// Leitura da nota por IA (Google Gemini), para quando NAO existe o XML:
+// Leitura da nota por IA (ChatGPT ou Gemini, ver leitura/gemini.js), para quando NAO existe o XML:
 // foto tirada no celular, DANFE em PDF, print, etc.
 //
 // Importante: o XML sempre vem primeiro. A IA so entra quando nao tem XML,
@@ -6,7 +6,8 @@
 // vem daqui passa pela tela de conferencia antes de gravar.
 
 import { carregarConfig } from '../config.js';
-import { chamarGemini, textoDaResposta, configEconomica, MODELO_ECONOMICO } from './gemini.js';
+import { chamarGemini, textoDaResposta, configEconomica } from './gemini.js';
+import { provedorDaIA, listarModelosOpenAI, MODELO_PRINCIPAL_OPENAI } from './openai.js';
 
 const ENDERECO_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -105,7 +106,7 @@ export async function lerDocumentoComIA(arquivos, observacao = '') {
     partes.push({ inline_data: { mime_type: arquivo.tipo, data: arquivo.base64 } });
   }
 
-  // chamarGemini ja tenta de novo sozinho e troca de modelo se o Google estiver cheio
+  // chamarGemini ja tenta de novo sozinho e troca de modelo se a IA estiver cheia
   const dados = await chamarGemini({
     contents: [{ parts: partes }],
     // leitura de documento nao pode ser criativa nem precisa 'pensar' antes
@@ -248,6 +249,7 @@ export async function listarModelos() {
   const cfg = carregarConfig();
   const chave = cfg.ia?.chave?.trim();
   if (!chave) throw new Error('Configure a chave da IA primeiro.');
+  if (provedorDaIA(cfg) === 'openai') return listarModelosOpenAI();
 
   const resposta = await fetch(`${ENDERECO_BASE}/models`, {
     headers: { 'x-goog-api-key': chave },
@@ -264,7 +266,17 @@ export async function listarModelos() {
 /** Testa se a chave funciona, sem gastar leitura de documento. */
 export async function testarChave() {
   const modelos = await listarModelos();
-  return { ok: true, modelosDisponiveis: modelos.length, exemplos: modelos.slice(0, 6) };
+  const provedor = provedorDaIA();
+  if (provedor === 'openai' && !modelos.includes(MODELO_PRINCIPAL_OPENAI)) {
+    throw new Error(`A chave funciona, mas a conta não tem o modelo ${MODELO_PRINCIPAL_OPENAI}.`);
+  }
+  return {
+    ok: true,
+    provedor,
+    nomeDaIA: provedor === 'openai' ? 'ChatGPT (OpenAI)' : 'Gemini (Google)',
+    modelosDisponiveis: modelos.length,
+    exemplos: modelos.slice(0, 6),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +406,8 @@ const FORMATO_AJUSTE = {
     entendi: { type: 'string' },
     acrescimoNaNota: { type: 'number' },
     descontoNaNota: { type: 'number' },
+    percentualNaNota: { type: 'number' },
+    nomeDoPercentual: { type: 'string' },
     porItem: {
       type: 'array',
       items: {
@@ -404,6 +418,7 @@ const FORMATO_AJUSTE = {
           unidadesPorCaixa: { type: 'integer' },
           acrescimo: { type: 'number' },
           desconto: { type: 'number' },
+          percentual: { type: 'number' },
           motivo: { type: 'string' },
         },
       },
@@ -437,9 +452,15 @@ O que voce pode devolver:
 - acrescimoNaNota: valor em reais que deve ser somado ao custo da nota inteira
   (taxa, imposto a mais, despesa que nao veio na nota). O sistema rateia sozinho.
 - descontoNaNota: valor em reais a diminuir da nota inteira.
+- percentualNaNota: quando a pessoa falar em PORCENTAGEM que vale para todos os
+  itens (ex.: "calcular DIFAL de 6%", "diferencial de aliquota 6%", "mais 4% de
+  imposto", "veio de outro estado, soma 6%"). Devolva SO o numero (6), nunca o valor
+  em reais - o sistema aplica em cada produto.
+- nomeDoPercentual: o nome do que a porcentagem e ("DIFAL", "imposto", "taxa").
 - porItem: ajustes de um item especifico. Use o "numero" do item da lista abaixo.
     unidadesPorCaixa -> quando a pessoa disser quantas unidades vem na caixa
     acrescimo/desconto -> valor em reais so daquele item
+    percentual -> porcentagem so daquele item (o numero, ex.: 6)
 - entendi: uma frase curta, em portugues simples, dizendo o que voce entendeu.
 - naoEntendi: se parte do texto nao virou ajuste nenhum, escreva aqui.
 
@@ -454,24 +475,33 @@ OBSERVACAO ESCRITA:
 ${texto}
 """`;
 
-  const dados = await chamarGemini({
-    contents: [{ parts: [{ text: instrucoes }] }],
-    generationConfig: configEconomica({
-      maximoDeResposta: 1024,
-      responseMimeType: 'application/json',
-      responseSchema: FORMATO_AJUSTE,
-    }),
-  }, { preferir: MODELO_ECONOMICO });
+  // "DIFAL 6%" e tao comum que nem precisa de IA: o codigo le sozinho.
+  // Serve tambem de rede de seguranca quando a IA falha ou bate o limite do dia -
+  // foi assim que a observacao do DIFAL passou batida e a nota entrou sem ele.
+  const porcentagemLida = percentualEscrito(texto);
 
-  const resposta = textoDaResposta(dados);
-  if (!resposta) return null;
-
-  let bruto;
+  let bruto = null;
   try {
-    bruto = JSON.parse(resposta);
-  } catch {
-    return null;
+    const dados = await chamarGemini({
+      contents: [{ parts: [{ text: instrucoes }] }],
+      generationConfig: configEconomica({
+        maximoDeResposta: 1024,
+        responseMimeType: 'application/json',
+        responseSchema: FORMATO_AJUSTE,
+      }),
+    // o modelo principal, nao o economico: entender "DIFAL de 6% so nos itens
+    // de fora" errado vira custo errado no cadastro inteiro. Texto curto custa pouco.
+    });
+    const resposta = textoDaResposta(dados);
+    bruto = resposta ? JSON.parse(resposta) : null;
+  } catch (erro) {
+    if (!porcentagemLida) throw erro;
+    bruto = null;               // sem IA, mas o percentual o codigo ja leu
   }
+  if (!bruto && !porcentagemLida) return null;
+  bruto = bruto || {};
+
+  const valido = (p) => (Number(p) > 0 && Number(p) <= 100 ? Number(p) : 0);
 
   const porItem = (bruto.porItem || [])
     .map((a) => ({
@@ -480,19 +510,66 @@ ${texto}
       unidadesPorCaixa: Number(a.unidadesPorCaixa) || 0,
       acrescimo: Number(a.acrescimo) || 0,
       desconto: Number(a.desconto) || 0,
+      percentual: valido(a.percentual),
       motivo: String(a.motivo || '').trim(),
     }))
-    .filter((a) => a.numero > 0 && (a.unidadesPorCaixa > 0 || a.acrescimo || a.desconto));
+    .filter((a) => a.numero > 0
+      && (a.unidadesPorCaixa > 0 || a.acrescimo || a.desconto || a.percentual));
 
   const acrescimoNaNota = Number(bruto.acrescimoNaNota) || 0;
   const descontoNaNota = Number(bruto.descontoNaNota) || 0;
 
+  // o percentual da nota inteira: o que a IA entendeu ou, se ela nao pegou, o que o codigo leu
+  let percentualNaNota = valido(bruto.percentualNaNota);
+  let nomeDoPercentual = String(bruto.nomeDoPercentual || '').trim();
+  const ninguemNoItem = !porItem.some((a) => a.percentual);
+  if (!percentualNaNota && porcentagemLida && ninguemNoItem) {
+    percentualNaNota = porcentagemLida.percentual;
+    nomeDoPercentual = porcentagemLida.nome;
+  }
+  if (percentualNaNota && !nomeDoPercentual) nomeDoPercentual = porcentagemLida?.nome || 'acréscimo';
+
+  let entendi = String(bruto.entendi || '').trim();
+  if (!entendi && percentualNaNota) {
+    entendi = `${nomeDoPercentual} de ${String(percentualNaNota).replace('.', ',')}% em cima de cada produto.`;
+  }
+
   return {
-    entendi: String(bruto.entendi || '').trim(),
+    entendi,
     naoEntendi: String(bruto.naoEntendi || '').trim(),
     acrescimoNaNota,
     descontoNaNota,
+    percentualNaNota,
+    nomeDoPercentual,
     porItem,
-    temAjuste: Boolean(acrescimoNaNota || descontoNaNota || porItem.length),
+    temAjuste: Boolean(acrescimoNaNota || descontoNaNota || percentualNaNota || porItem.length),
   };
+}
+
+/**
+ * Le "DIFAL 6%", "diferencial de aliquota de 6 %", "soma 4,5% de imposto".
+ * So aceita quando ha UMA porcentagem e o texto fala de acrescimo/imposto -
+ * "desconto de 5%" ou duas porcentagens diferentes ficam para a IA entender.
+ */
+export function percentualEscrito(texto) {
+  const minusculo = String(texto || '').toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+  const achados = [...minusculo.matchAll(/(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:%|por\s*cento)/g)]
+    .map((m) => Number(m[1].replace(',', '.')));
+  const diferentes = [...new Set(achados)];
+  if (diferentes.length !== 1) return null;
+
+  const percentual = diferentes[0];
+  if (!(percentual > 0 && percentual <= 100)) return null;
+  if (/desconto|abatimento|diminui|tirar|menos/.test(minusculo)) return null;
+
+  if (/difal|diferencial/.test(minusculo)) return { percentual, nome: 'DIFAL' };
+  if (/outro estado|interestadual|fora do estado/.test(minusculo)) return { percentual, nome: 'DIFAL' };
+  if (/icms/.test(minusculo)) return { percentual, nome: 'ICMS' };
+  if (/imposto|aliquota|tributo/.test(minusculo)) return { percentual, nome: 'imposto' };
+  if (/acrescimo|acrescentar|somar|soma|mais|adicional|adicionar|taxa|calcular/.test(minusculo)) {
+    return { percentual, nome: 'acréscimo' };
+  }
+  return null;
 }

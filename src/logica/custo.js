@@ -13,9 +13,17 @@
  * na proporcao do valor de cada um.
  */
 function ratear(valorTotal, itens) {
-  const soma = itens.reduce((total, item) => total + (item.valorProduto || 0), 0);
-  if (!valorTotal || soma <= 0) return itens.map(() => 0);
-  return itens.map((item) => (valorTotal * (item.valorProduto || 0)) / soma);
+  if (!valorTotal || !itens.length) return itens.map(() => 0);
+  // proporcao pelo valor do produto na nota; se ele nao veio (leitura por foto
+  // incompleta), pelo custo do item e, em ultimo caso, dividido por igual.
+  // Antes, sem valorProduto a taxa escrita na observacao sumia em silencio.
+  const pesoPor = [
+    (item) => item.valorProduto || 0,
+    (item) => item.custoTotalItem || 0,
+    () => 1,
+  ].find((peso) => itens.reduce((total, item) => total + peso(item), 0) > 0);
+  const soma = itens.reduce((total, item) => total + pesoPor(item), 0);
+  return itens.map((item) => (valorTotal * pesoPor(item)) / soma);
 }
 
 /**
@@ -87,6 +95,7 @@ export function aplicarAjustes(itens, ajustes) {
   const porNumero = new Map((ajustes.porItem || []).map((a) => [a.numero, a]));
   const diferencaDaNota = (ajustes.acrescimoNaNota || 0) - (ajustes.descontoNaNota || 0);
   const rateio = ratear(diferencaDaNota, itens);
+  const nomeDoPercentual = ajustes.nomeDoPercentual || 'acréscimo';
 
   return itens.map((item, indice) => {
     const ajuste = porNumero.get(item.numero);
@@ -94,6 +103,24 @@ export function aplicarAjustes(itens, ajustes) {
 
     let quantidade = item.quantidadeUnidades;
     let custoTotal = item.custoTotalItem;
+
+    // 0) porcentagem (DIFAL de mercadoria que veio de outro estado, por exemplo).
+    // A base e o valor da mercadoria na nota: produto - desconto + frete + IPI +
+    // outras despesas. Credito de ICMS e ST nao entram - nao sao valor da operacao.
+    const percentual = ajuste?.percentual || ajustes.percentualNaNota || 0;
+    let valorDoPercentual = 0;
+    if (percentual > 0) {
+      const c = item.composicaoCusto || {};
+      const base = c.produtos !== undefined
+        ? (c.produtos || 0) - (c.desconto || 0) + (c.frete || 0) + (c.outrasDespesas || 0) + (c.ipi || 0)
+        : (item.valorProduto || item.custoTotalItem || 0);
+      valorDoPercentual = arredondar(base * (percentual / 100), 2);
+      if (valorDoPercentual) {
+        custoTotal += valorDoPercentual;
+        explicacoes.push(`+ ${nomeDoPercentual} ${String(percentual).replace('.', ',')}%: `
+          + `R$ ${formatar(valorDoPercentual)} (sobre R$ ${formatar(base)})`);
+      }
+    }
 
     // 1) quantas unidades vem na caixa
     if (ajuste?.unidadesPorCaixa > 1 && item.quantidadeComercial > 0) {
@@ -126,6 +153,13 @@ export function aplicarAjustes(itens, ajustes) {
       custoTotalItem: arredondar(custoTotal, 2),
       custoUnitario: arredondar(custoTotal / quantidadeFinal, 4),
       ajusteAplicado: explicacoes.join(' · '),
+      // para o resumo da tela: quanto a observacao somou/tirou neste item
+      ajusteValores: {
+        percentual: valorDoPercentual,
+        doItem,
+        daNota,
+        custoAntes: item.custoUnitario,
+      },
     };
   });
 }
