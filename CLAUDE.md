@@ -289,6 +289,12 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - A entrada em cascata dos itens roda **só na primeira montagem da lista**
   (`animarSeForAPrimeiraVez`). Antes ela rodava a cada redesenho e a tela inteira
   piscava do transparente para o opaco — era o "fica tudo apagado".
+- **Chat "pesquisando"**: enquanto a IA trabalha aparecem etapas que vão ganhando
+  tique, relógio de segundos, barra correndo e frases de espera (etapas diferentes
+  para orçamento, lucro, relatório, cliente e estoque). As etapas andam por TEMPO
+  (o servidor não manda progresso) e a última fica ativa até a resposta chegar.
+  Só a fala nova anima (antes a conversa inteira piscava a cada pergunta), e o
+  indicador continua girando mesmo com as animações do Windows desligadas.
 - No celular: abas em cima, botões grandes, respeita a área segura do aparelho.
 - No PC (1024px+): o menu vira barra lateral e a tela vira um app.
 - Respeita "reduzir animações" do sistema e tem estilo próprio para impressão.

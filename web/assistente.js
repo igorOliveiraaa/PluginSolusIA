@@ -7,6 +7,107 @@ import { abrirOrcamentoMontado } from './orcamento.js';
 const conversa = [];       // { papel: 'pessoa' | 'ia', texto }
 let pensando = false;
 let temExportacao = false;
+let jaDesenhadas = 0;      // so a fala nova anima; as antigas ficam quietas
+let relogio = null;        // o que faz a animacao de "pesquisando" andar
+
+/*
+ * Enquanto a IA pesquisa (10 a 50 segundos), a tela mostra em que parte ela
+ * esta. As etapas andam pelo tempo - o servidor nao manda o progresso -, entao
+ * a ultima nunca "termina" sozinha: ela fica ativa ate a resposta chegar.
+ * Sem isso, tres pontinhos parados por 30 segundos parecem programa travado.
+ */
+const ETAPAS = {
+  orcamento: ['Lendo os itens do pedido', 'Procurando cada produto no cadastro',
+    'Vendo o que esse cliente já pagou', 'Montando o orçamento'],
+  lucro: ['Separando as vendas do período', 'Somando o que foi faturado',
+    'Comparando com o custo de cada item', 'Fechando a conta'],
+  relatorio: ['Entendendo o que entra no relatório', 'Buscando os dados no sistema',
+    'Organizando as linhas', 'Preparando o resultado'],
+  cliente: ['Procurando o cliente', 'Olhando todos os cadastros com esse nome',
+    'Separando as compras', 'Conferindo os preços'],
+  estoque: ['Abrindo o estoque', 'Conferindo produto por produto',
+    'Separando o que chama atenção', 'Escrevendo a resposta'],
+  padrao: ['Entendendo a pergunta', 'Procurando no sistema da loja',
+    'Conferindo os números', 'Escrevendo a resposta'],
+};
+
+const DICAS_DE_ESPERA = [
+  'O sistema da loja tem milhares de pedidos — estou olhando um por um.',
+  'Respondo só com número que veio do sistema, nunca de cabeça.',
+  'Pergunta com período ("no mês passado") costuma vir mais rápido.',
+  'Depois dá pra baixar a resposta como planilha ou PDF.',
+];
+
+function etapasDaPergunta(pergunta) {
+  const p = String(pergunta).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (/orcamento|orcar|cotacao/.test(p)) return ETAPAS.orcamento;
+  if (/lucro|faturamento|faturei|faturou|margem/.test(p)) return ETAPAS.lucro;
+  if (/relatorio|planilha|listar|lista de/.test(p)) return ETAPAS.relatorio;
+  if (/cliente|vendemos|vendi|pagou|comprou/.test(p)) return ETAPAS.cliente;
+  if (/estoque|parado|negativo|zerado/.test(p)) return ETAPAS.estoque;
+  return ETAPAS.padrao;
+}
+
+function animacaoPensando(etapas) {
+  return `
+    <div class="fala ia nova" id="fala-pensando" role="status" aria-live="polite">
+      <div class="balao pensando">
+        <div class="pensando-topo">
+          <span class="pensando-orbita" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div>
+            <strong class="pensando-titulo">Pesquisando no sistema</strong>
+            <span class="pensando-tempo" id="pensando-tempo">agora mesmo</span>
+          </div>
+        </div>
+        <ol class="pensando-etapas">
+          ${etapas.map((etapa, i) => `<li class="${i === 0 ? 'atual' : ''}">${escapar(etapa)}</li>`).join('')}
+        </ol>
+        <div class="pensando-barra" aria-hidden="true"><span></span></div>
+        <p class="pensando-dica" id="pensando-dica"></p>
+      </div>
+    </div>`;
+}
+
+/** Faz as etapas andarem, o relogio contar e as dicas trocarem. */
+function comecarAnimacao() {
+  pararAnimacao();
+  const inicio = Date.now();
+
+  relogio = setInterval(() => {
+    const fala = $('#fala-pensando');
+    if (!fala) return;
+    const segundos = Math.floor((Date.now() - inicio) / 1000);
+
+    // uma etapa a cada 4 segundos; a ultima fica ate a resposta chegar
+    const itens = fala.querySelectorAll('.pensando-etapas li');
+    const atual = Math.min(Math.floor(segundos / 4), itens.length - 1);
+    itens.forEach((li, i) => {
+      li.classList.toggle('feita', i < atual);
+      li.classList.toggle('atual', i === atual);
+    });
+
+    $('#pensando-tempo').textContent = segundos < 3 ? 'agora mesmo' : `${segundos} segundos`;
+
+    // depois de 12s, uma frase que tranquiliza (troca a cada 7s, com transicao)
+    const dica = $('#pensando-dica');
+    if (segundos >= 12) {
+      const texto = segundos >= 45
+        ? 'Está demorando mais que o normal. A IA gratuita às vezes fica sobrecarregada — continuo tentando.'
+        : DICAS_DE_ESPERA[Math.floor((segundos - 12) / 7) % DICAS_DE_ESPERA.length];
+      if (dica.textContent !== texto) {
+        dica.classList.remove('trocando');
+        void dica.offsetWidth;            // reinicia a transicao
+        dica.textContent = texto;
+        dica.classList.add('trocando');
+      }
+    }
+  }, 500);
+}
+
+function pararAnimacao() {
+  if (relogio) clearInterval(relogio);
+  relogio = null;
+}
 
 const SUGESTOES = [
   'Quanto tenho de saco de lixo 100 litros?',
@@ -111,12 +212,15 @@ function desenhar() {
     return;
   }
 
-  area.innerHTML = conversa.map((m) => {
+  area.innerHTML = conversa.map((m, indice) => {
+    // antes TODA a conversa refazia a entrada a cada pergunta: os baloes
+    // sumiam e voltavam juntos, e parecia que a tela tinha bugado
+    const nova = indice >= jaDesenhadas ? ' nova' : '';
     if (m.papel === 'pessoa') {
-      return `<div class="fala pessoa"><div class="balao">${escapar(m.texto)}</div></div>`;
+      return `<div class="fala pessoa${nova}"><div class="balao">${escapar(m.texto)}</div></div>`;
     }
     return `
-      <div class="fala ia">
+      <div class="fala ia${nova}">
         <div class="balao">
           ${formatar(m.texto)}
           ${m.orcamento ? cartaoDoOrcamento(m.orcamento) : ''}
@@ -129,7 +233,8 @@ function desenhar() {
         </div>
       </div>`;
   }).join('')
-    + (pensando ? '<div class="fala ia"><div class="balao pensando"><span></span><span></span><span></span></div></div>' : '');
+    + (pensando ? animacaoPensando(pensando.etapas) : '');
+  jaDesenhadas = conversa.length;
 
   area.querySelectorAll('[data-abrir-orcamento]').forEach((botao) => {
     botao.addEventListener('click', async () => {
@@ -201,10 +306,11 @@ async function enviar() {
   conversa.push({ papel: 'pessoa', texto: pergunta });
   campo.value = '';
   campo.style.height = 'auto';
-  pensando = true;
+  pensando = { etapas: etapasDaPergunta(pergunta) };
   temExportacao = false;
   atualizarBotoes();
   desenhar();
+  comecarAnimacao();
 
   try {
     const resposta = await api('/api/perguntar', {
@@ -229,6 +335,7 @@ async function enviar() {
   } catch (erro) {
     conversa.push({ papel: 'ia', texto: `Não consegui responder: ${erro.message}` });
   } finally {
+    pararAnimacao();
     pensando = false;
     atualizarBotoes();
     desenhar();
@@ -236,7 +343,7 @@ async function enviar() {
 }
 
 function atualizarBotoes() {
-  $('#btn-perguntar').disabled = pensando;
+  $('#btn-perguntar').disabled = Boolean(pensando);
   $('#exportacao').classList.toggle('escondido', !temExportacao);
 }
 
@@ -288,7 +395,9 @@ $('#btn-planilha').addEventListener('click', () => baixar('planilha'));
 $('#btn-pdf-resultado').addEventListener('click', () => baixar('pdf'));
 
 $('#btn-limpar-conversa').addEventListener('click', () => {
+  if (pensando) return;      // limpar no meio da pesquisa perderia a resposta
   conversa.length = 0;
+  jaDesenhadas = 0;
   temExportacao = false;
   atualizarBotoes();
   desenhar();

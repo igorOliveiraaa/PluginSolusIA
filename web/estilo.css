@@ -898,7 +898,8 @@ body.travado { overflow: hidden; }
   box-shadow: 0 8px 24px rgba(15, 118, 110, .14);
 }
 
-.fala { display: flex; animation: entrar .35s var(--suave); }
+.fala { display: flex; }
+.fala.nova { animation: entrar .35s var(--suave); }
 .fala.pessoa { justify-content: flex-end; }
 
 .balao { max-width: 88%; padding: 12px 16px; border-radius: 20px; font-size: 15px; line-height: 1.5; }
@@ -934,20 +935,123 @@ body.travado { overflow: hidden; }
 .de-onde summary { cursor: pointer; user-select: none; }
 .de-onde ul { margin: 6px 0 0; padding-left: 18px; }
 
-.balao.pensando { display: flex; gap: 5px; padding: 16px 18px; }
+/* ---- "pesquisando": etapas, relogio, barra e dicas enquanto a IA trabalha ---- */
 
-.balao.pensando span {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--principal);
-  animation: pular 1.3s infinite;
+.balao.pensando { width: min(340px, 88%); padding: 16px 18px 14px; }
+
+.pensando-topo { display: flex; align-items: center; gap: 12px; }
+.pensando-topo > div { display: flex; flex-direction: column; min-width: 0; }
+
+.pensando-titulo {
+  font-size: 15px;
+  background: linear-gradient(90deg, var(--principal), var(--roxo), var(--rosa), var(--principal));
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: brilhoTexto 3.2s linear infinite;
 }
 
-.balao.pensando span:nth-child(2) { animation-delay: .18s; }
-.balao.pensando span:nth-child(3) { animation-delay: .36s; }
+.pensando-tempo { font-size: 12px; color: var(--texto-fraco); font-variant-numeric: tabular-nums; }
 
-@keyframes pular {
-  0%, 60%, 100% { transform: translateY(0); opacity: .35; }
-  30% { transform: translateY(-6px); opacity: 1; }
+/* tres bolinhas coloridas girando em volta de um centro */
+.pensando-orbita {
+  position: relative;
+  flex: none;
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--roxo-fundo) 0 45%, transparent 46%);
+  animation: girar 1.6s linear infinite;
+}
+
+.pensando-orbita i {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 9px; height: 9px;
+  margin: -4.5px;
+  border-radius: 50%;
+  background: var(--principal-claro);
+  transform: rotate(0deg) translateX(12px);
+  animation: pulsoOrbita 1.6s ease-in-out infinite;
+}
+.pensando-orbita i:nth-child(2) { background: var(--roxo); transform: rotate(120deg) translateX(12px); animation-delay: .2s; }
+.pensando-orbita i:nth-child(3) { background: var(--rosa); transform: rotate(240deg) translateX(12px); animation-delay: .4s; }
+
+.pensando-etapas { list-style: none; margin: 14px 0 12px; padding: 0; display: grid; gap: 7px; }
+
+.pensando-etapas li {
+  position: relative;
+  padding-left: 26px;
+  font-size: 13.5px;
+  color: var(--texto-fraco);
+  opacity: .55;
+  transition: opacity .4s var(--suave), color .4s var(--suave);
+}
+
+/* a bolinha de cada etapa: vazia, pulsando (a atual) ou com o tique (feita) */
+.pensando-etapas li::before {
+  content: '';
+  position: absolute;
+  left: 2px; top: 50%;
+  width: 14px; height: 14px;
+  margin-top: -7px;
+  border-radius: 50%;
+  border: 2px solid var(--borda);
+  box-sizing: border-box;
+  transition: background .35s var(--suave), border-color .35s var(--suave);
+}
+
+.pensando-etapas li.atual { opacity: 1; color: var(--texto); font-weight: 600; }
+.pensando-etapas li.atual::before {
+  border-color: var(--roxo);
+  background: var(--roxo-fundo);
+  animation: pulsoEtapa 1.2s ease-in-out infinite;
+}
+
+.pensando-etapas li.feita { opacity: .85; color: var(--texto-fraco); }
+.pensando-etapas li.feita::before { border-color: var(--sucesso); background: var(--sucesso); }
+.pensando-etapas li.feita::after {
+  content: '';
+  position: absolute;
+  left: 7px; top: 50%;
+  width: 3px; height: 7px;
+  margin-top: -5px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  animation: aparecer .3s var(--suave);
+}
+
+/* barra que corre sem parar: mostra que ainda esta trabalhando */
+.pensando-barra {
+  position: relative;
+  height: 4px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: var(--roxo-fundo);
+}
+.pensando-barra span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--principal-claro), var(--roxo), var(--rosa));
+  animation: correrBarra 1.5s var(--suave) infinite;
+}
+
+.pensando-dica { margin: 10px 0 0; font-size: 12.5px; color: var(--texto-fraco); min-height: 0; }
+.pensando-dica:empty { display: none; }
+.pensando-dica.trocando { animation: entrar .45s var(--suave); }
+
+@keyframes brilhoTexto { to { background-position: 300% 0; } }
+@keyframes pulsoOrbita { 50% { opacity: .45; } }
+@keyframes pulsoEtapa {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, .35); }
+  50% { box-shadow: 0 0 0 5px rgba(79, 70, 229, 0); }
+}
+@keyframes correrBarra {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
 }
 
 .exportacao {
@@ -1096,6 +1200,12 @@ textarea:focus-visible, select:focus-visible, summary:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
+
+  /* Com as animacoes do Windows desligadas, os pontinhos do chat ficavam
+     PARADOS e parecia programa travado. Indicador de "ainda trabalhando" pode
+     se mexer: fica so o giro e a barra, devagar, sem nada pulando na tela. */
+  .pensando-orbita { animation: girar 2.4s linear infinite !important; }
+  .pensando-barra span { animation: correrBarra 2.4s linear infinite !important; }
 }
 
 @media print {
