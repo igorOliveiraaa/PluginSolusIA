@@ -29,14 +29,21 @@ echo.
 pause
 
 rem ---- 1. fecha o Plugin, se estiver aberto ----------------------------------
-if exist "%DESTINO%dados\plugin.pid" (
-  echo  Fechando o Plugin que esta aberto...
-  set /p PID=<"%DESTINO%dados\plugin.pid"
-  taskkill /PID !PID! /T /F >nul 2>&1
-  del "%DESTINO%dados\plugin.pid" >nul 2>&1
-  echo  [ok] Plugin fechado.
-  echo.
+rem Quem e o Plugin: o node.exe atendendo na porta 3535. NAO confia so no numero
+rem de dados\plugin.pid: depois de faltar luz ele fica velho, e o Windows pode ter
+rem dado o mesmo numero a outro programa - ate ao Solus, no meio de uma venda.
+set "PID="
+for /f "tokens=5" %%P in ('netstat -ano -p tcp ^| findstr /C:":3535 " ^| findstr "LISTENING"') do set "PID=%%P"
+if defined PID (
+  tasklist /FI "PID eq !PID!" /FI "IMAGENAME eq node.exe" /NH | findstr /I "node.exe" >nul
+  if not errorlevel 1 (
+    echo  Fechando o Plugin que esta aberto...
+    taskkill /PID !PID! /T /F >nul 2>&1
+    echo  [ok] Plugin fechado.
+    echo.
+  )
 )
+del "%DESTINO%dados\plugin.pid" >nul 2>&1
 
 rem ---- 2. caminho rapido: projeto baixado com Git ----------------------------
 if exist "%DESTINO%.git" (

@@ -27,6 +27,12 @@ para `dados/plugin-log.txt`, o servidor grava o número do processo em `dados/pl
 (é assim que o PARAR acha o programa) e não abre o navegador sozinho
 (`PLUGIN_SEGUNDO_PLANO=1`).
 
+**O `plugin.pid` fica velho quando falta luz ou o PC desliga no botão** — e o Windows pode
+dar aquele número a outro programa (até ao Solus). Por isso PARAR/ATUALIZAR identificam o
+Plugin como "o `node.exe` atendendo na porta 3535" (netstat + tasklist), nunca só pelo
+número do arquivo; e o ABRIR liga o Plugin quando a porta não responde, mesmo com o
+arquivo lá. Testado com um programa "isca" no número velho: não foi fechado.
+
 `INICIAR-COM-O-WINDOWS.bat` põe um `.vbs` na pasta de inicialização para o Plugin subir
 em segundo plano quando o PC liga. `ATUALIZAR-PLUGIN.bat` baixa a versão nova do GitHub.
 Abre em `http://localhost:3535`. No celular pela rede WiFi da loja, usar o IP que
