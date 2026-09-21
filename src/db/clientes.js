@@ -7,6 +7,7 @@
 import { consultar, emTransacao, paraNumero, paraTextoBR, campoTexto, lerTexto, gravarTexto } from './firebird.js';
 import { colunasDe, tamanhoDaColuna } from './produtos.js';
 import { formatarCnpj } from '../leitura/cnpj.js';
+import { VENDA_VALIDA } from './venda-valida.js';
 
 const CAMPOS_CLIENTE = `CODIGO, ${campoTexto('NOME', 50)}, ${campoTexto('FANTASIA', 40)},
   CPFCNPJ, INSCRICAO, ${campoTexto('RUA', 60)}, NUMERO, ${campoTexto('BAIRRO', 70)},
@@ -214,8 +215,7 @@ export async function ultimasCompras(codigoCliente, limite = 40) {
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
       WHERE TRIM(P.CODCLIENTE) = ?
-        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
-        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+        AND ${VENDA_VALIDA}
       ORDER BY I.DATA DESC`,
     [cod]
   );
@@ -228,6 +228,38 @@ export async function ultimasCompras(codigoCliente, limite = 40) {
     data: l.DATA,
     pedido: Number(l.NUMERO),
   }));
+}
+
+/**
+ * TODOS os produtos que o cliente ja comprou (faturado), do mais recente para o
+ * mais antigo, um por produto. E o que faz o orcamento escolher "o que ESTE
+ * cliente leva" quando ha varios parecidos.
+ *
+ * Antes usava as ultimas 120 linhas de venda: cliente grande (empresa de limpeza)
+ * estoura isso em poucas semanas, e o produto que ele compra todo mes ficava de
+ * fora - o orcamento escolhia outra marca e "o cliente pagou" saia vazio.
+ */
+export async function produtosQueOClienteComprou(codigoCliente, anos = 3) {
+  const cod = String(codigoCliente || '').trim();
+  if (!cod) return [];
+  const desde = new Date();
+  desde.setFullYear(desde.getFullYear() - anos);
+
+  const linhas = await consultar(
+    `SELECT TRIM(I.PRODUTO) AS CHAVE, MAX(I.DATA) AS ULTIMA, COUNT(*) AS VEZES
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE TRIM(P.CODCLIENTE) = ? AND I.DATA >= ?
+        AND ${VENDA_VALIDA}
+      GROUP BY 1
+      ORDER BY 2 DESC`,
+    [cod, desde]
+  );
+  return linhas.map((l) => ({
+    chave: String(l.CHAVE || '').trim(),
+    ultima: l.ULTIMA,
+    vezes: Number(l.VEZES) || 0,
+  })).filter((l) => l.chave);
 }
 
 /**
@@ -254,8 +286,7 @@ export async function ultimoPrecoDoCliente(codigoCliente, chaves) {
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
       WHERE TRIM(P.CODCLIENTE) = ? AND TRIM(I.PRODUTO) IN (${lista.map(() => '?').join(', ')})
-        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
-        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+        AND ${VENDA_VALIDA}
       ORDER BY I.DATA DESC`,
     [cod, ...lista]
   );
@@ -279,8 +310,7 @@ export async function ultimoPrecoDaLoja(chaves) {
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
       WHERE TRIM(I.PRODUTO) IN (${lista.map(() => '?').join(', ')})
-        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
-        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+        AND ${VENDA_VALIDA}
       ORDER BY I.DATA DESC`,
     lista
   );

@@ -13,6 +13,7 @@ import path from 'node:path';
 import os from 'node:os';
 import selfsigned from 'selfsigned';
 import { PASTAS } from './config.js';
+import { NOME_NA_REDE } from './nome-na-rede.js';
 
 const PASTA_CERT = path.join(PASTAS.dados, 'certificado');
 const ARQUIVO_CERT = path.join(PASTA_CERT, 'certificado.pem');
@@ -40,12 +41,31 @@ export function ehRedeLocal(ip) {
 }
 
 /**
- * Devolve o certificado, gerando um novo se nao existir ou se o IP da maquina
- * tiver mudado (o certificado precisa citar o IP que o celular vai acessar).
+ * Os nomes que o certificado precisa aceitar: o nome fixo do Plugin na rede
+ * (plugin-solus.local) e o nome do proprio PC (que o Windows ja acha na rede).
+ */
+export function nomesDaMaquina() {
+  const nomeDoPc = String(os.hostname() || '').trim();
+  return [...new Set(['localhost', NOME_NA_REDE, nomeDoPc, nomeDoPc && `${nomeDoPc}.local`]
+    .filter(Boolean).map((n) => n.toLowerCase()))];
+}
+
+/** "192.168.0.242" -> "192.168.0" (a rede da loja). */
+const redeDo = (ip) => ip.split('.').slice(0, 3).join('.');
+
+/**
+ * Devolve o certificado, gerando um novo so quando precisa.
+ *
+ * Antes ele era refeito toda vez que o roteador trocava o IP do PC (quase todo
+ * dia): o celular mostrava "site nao seguro" de novo e o app instalado quebrava.
+ * Agora o certificado vale para o NOME do Plugin e para TODOS os enderecos da
+ * rede da loja (192.168.0.1 a .254) - o IP pode mudar a vontade dentro da rede.
  */
 export async function obterCertificado() {
   const ips = ipsDaMaquina();
-  const assinatura = JSON.stringify({ ips: [...ips].sort(), versao: 1 });
+  const redes = [...new Set(ips.filter(ehRedeLocal).map(redeDo))].sort();
+  const nomes = nomesDaMaquina();
+  const assinatura = JSON.stringify({ redes, nomes, versao: 2 });
 
   if (fs.existsSync(ARQUIVO_CERT) && fs.existsSync(ARQUIVO_CHAVE)) {
     try {
@@ -63,14 +83,17 @@ export async function obterCertificado() {
 
   // o certificado precisa valer para localhost e para cada IP da maquina,
   // senao o navegador recusa antes mesmo de perguntar
+  const enderecos = new Set(['127.0.0.1', ...ips]);
+  for (const rede of redes) {
+    for (let final = 1; final <= 254; final += 1) enderecos.add(`${rede}.${final}`);
+  }
   const alternativos = [
-    { type: 2, value: 'localhost' },
-    { type: 7, ip: '127.0.0.1' },
-    ...ips.map((ip) => ({ type: 7, ip })),
+    ...nomes.map((nome) => ({ type: 2, value: nome })),
+    ...[...enderecos].map((ip) => ({ type: 7, ip })),
   ];
 
   const gerado = await selfsigned.generate(
-    [{ name: 'commonName', value: ips[0] || 'localhost' }],
+    [{ name: 'commonName', value: NOME_NA_REDE }],
     {
       days: 730,
       keySize: 2048,
@@ -88,7 +111,7 @@ export async function obterCertificado() {
 
   const validoAte = new Date();
   validoAte.setDate(validoAte.getDate() + 720);
-  fs.writeFileSync(ARQUIVO_INFO, JSON.stringify({ assinatura, validoAte, ips }, null, 2), 'utf8');
+  fs.writeFileSync(ARQUIVO_INFO, JSON.stringify({ assinatura, validoAte, ips, redes, nomes }, null, 2), 'utf8');
 
   return { cert: gerado.cert, key: gerado.private, novo: true };
 }

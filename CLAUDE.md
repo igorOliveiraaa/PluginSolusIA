@@ -61,6 +61,12 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 | `src/xlsx.js` | Escreve arquivo .xlsx (ZIP + XML na mão, sem biblioteca) |
 | `src/excel-orcamento.js` | O orçamento em planilha do Excel, com fórmulas |
 | `src/logica/padroes-fiscais.js` | CST, IBS/CBS e "acessa valores" que o produto precisa ter |
+| `src/logica/caixa.js` | Caixa ou unidade? Decide olhando o produto do Solus |
+| `src/memoria-caixas.js` | O que o Plugin já aprendeu de "quantas vêm na caixa" por produto |
+| `src/db/fornecedores.js` | Fornecedor da nota → fornecedor do Solus (pelo CNPJ) |
+| `src/db/venda-valida.js` | O que conta como VENDA (só FATURADO) — usado em toda consulta |
+| `src/db/parados.js` | Marcar " - DESATIVADO" nos produtos parados há 2 anos |
+| `src/nome-na-rede.js` | Anuncia `plugin-solus.local` na rede (o endereço que não muda) |
 | `src/logica/custo.js` | Custo real com frete, IPI, ICMS-ST e crédito de imposto |
 | `src/logica/precos.js` | Margem, preço sugerido e arredondamento |
 | `src/logica/medidas.js` | Lê "3.70 X 2.10" no nome da venda e calcula o preço do m² |
@@ -134,7 +140,7 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 - `NF.STATUSNFE` é texto da Sefaz ("Autorizado o uso da NF-e", "NFE CANCELADA",
   "Rejeição: ..."). `NF.CHAVENFE` tem a chave e `NF.XML` o caminho do arquivo.
 - Quem emite é o **ACBrMonitor**, no PC do certificado, e salva o XML em
-  `C:ACBrMonitorPLUSLogs`. Para o Plugin enxergar, essa pasta precisa estar
+  `C:\ACBrMonitorPLUS\Logs`. Para o Plugin enxergar, essa pasta precisa estar
   compartilhada na rede e cadastrada em Ajustes.
 - Pagamento fica em `PEDIDOS.TIPOVENDA`, com os nomes da tabela `CONDICAO`
   (um deles começa com espaço — gravar exatamente como está lá).
@@ -148,6 +154,22 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
   cadastro "... M2". É `logica/medidas.js` que faz essa conta.
 - Em venda de item personalizado a `ITEMPEDIDO.DESCRICAO` NÃO é igual à do cadastro,
   e às vezes o código da venda nem existe mais em `PRODUTO`.
+- **VENDA DE VERDADE = `PEDIDOS.STATUS = 'FATURADO'`** e item sem EXTORNADO/CANCELADO/
+  ORCAMENTO. É o `VENDA_VALIDA` de `db/venda-valida.js`, usado em TODA consulta de venda.
+  Antes só se tirava o CANCELADO, e entravam 2.664 orçamentos, 265 estornos e pedidos sem
+  situação (outra numeração, 1,5 milhão, sem cliente nem total): "o cliente pagou" podia
+  ser preço de orçamento, e o lucro de ago/2025 saía R$ 81.689 quando é R$ 45.342.
+- **Tem loja com "código de barras" com pontos** (`02.01.06.0076`), e a VENDA guarda assim.
+  O produto lido guarda `barras` (só dígitos) E `barrasNoBanco` (como está gravado);
+  `chavesDoProduto` usa os dois.
+- `FORNECEDOR.CPFCNPJ` é gravado com pontuação; o Plugin liga o fornecedor da nota pelo
+  CNPJ só com números (`db/fornecedores.js`). `PRODUTOFORNE` = código do produto NO
+  fornecedor + `CODFOR` + `BARRAS` do nosso produto.
+- `ENTRADA.QTDCAIXA` está vazio em todas as 33 mil entradas: o Solus não guarda quantas
+  unidades vinham na caixa. Por isso o Plugin tem memória própria (`memoria-caixas.json`).
+- **A loja vende alguns produtos FECHADOS**: saco de lixo C/100 é `PCT`, guardanapo C/72
+  é `CX`, papel higiênico é `FD`. A unidade do produto no Solus decide se a caixa da nota
+  é separada em unidades ou não.
 
 ## A IA: hoje e o ChatGPT (OpenAI)
 
@@ -232,6 +254,21 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - A tela de conferência abre com **"O que fiz com a sua observação"**: quanto entrou de
   DIFAL/taxa, em quantos itens, o que foi rateado e o que não foi entendido. Se a IA
   falhar, aparece em vermelho que NADA foi somado (antes era silencioso).
+- **Caixa × unidade decidida pelo produto do Solus** (`logica/caixa.js`): produto
+  cadastrado em UN → SEMPRE separa; cadastrado em CX/PCT/FD (vendido fechado) → entra
+  fechado, e se a nota vier em unidade soltas (720 UN de guardanapo) junta em caixas.
+  Para saber quantas vêm: XML → memória do Plugin → descrição conferida pela conta do
+  custo (preço da caixa ÷ custo da unidade, preferindo tamanhos reais: 6, 12, 24...) →
+  só a conta (pede para conferir) → pergunta. Aprende ao gravar (`memoria-caixas.json`).
+  A observação da pessoa ("a caixa vem com 24") manda em tudo. 17 casos em
+  `t-nota-inteligente.mjs`.
+- **Tudo da nota vai para o produto vinculado**: NCM e CEST (sempre os da nota),
+  fornecedor e nome do fornecedor, unidade de compra, referência (se vazia). O NOME do
+  produto e o código de barras que já existia NÃO mudam (a venda guarda o barras).
+- **Ensina o Solus**: grava em `PRODUTOFORNE` "código do fornecedor → nosso produto";
+  a próxima nota desse fornecedor acha o produto sozinha.
+- **Produto marcado " - DESATIVADO" (ou CANCELADO) que recebe nota volta a ser ativo**:
+  tira a marca do nome e o CANCELADO. Tudo isso entra no desfazer.
 
 ### 2. Orçamento — pronto
 - Lê a lista do cliente por foto/print/PDF (IA) ou digitada (sem IA, de graça).
@@ -265,6 +302,14 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - **Quantidade é número inteiro** — "2,4 detergente" vira 2. A exceção é o que a loja
   vende em pedaço (unidade M2, M, KG, L, ou "M2" no nome, como o tapete), que continua
   aceitando vírgula.
+- **O produto DO CLIENTE vem primeiro** (`procurarCandidatos`): com o cliente escolhido,
+  o que ele comprou nos últimos 3 anos (só FATURADO) aparece primeiro, do mais recente;
+  depois o mais provável da loja. Se ele compra um só, é escolhido sozinho; se divide
+  de verdade entre dois (compras parecidas e recentes), pergunta — com os dele em cima e
+  a etiqueta "o cliente levou 5x · última 12/08". "CONSUMIDOR" não conta como cliente.
+  Escolher o cliente DEPOIS refaz a escolha (menos o que a pessoa escolheu na mão).
+  Testado com clientes reais: 30/30 pedidos (`t-preco-do-cliente.mjs`) e o caso
+  "álcool 5L" em 12/12 (`t-alcool-5l.mjs`).
 - **Produto parado não é sugerido**: quem não teve venda, entrada nem mudança de preço
   há mais de 2 anos (`DIAS_PARA_PARADO`) fica de fora da sugestão automática. Na
   pesquisa que a pessoa faz na mão ele aparece, marcado como "parado há X anos".
@@ -446,6 +491,24 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   de um campo continua normal: só arquivo é capturado. Print colado sempre se chama
   "image.png", então ele é renomeado para não parecer repetido.
 
+### 16. Produtos parados → " - DESATIVADO" — pronto
+- Aba Ajustes (só gerente): mostra quantos produtos ativos estão parados há mais de
+  2 anos (4.503 na cópia do banco, 688 ainda com estoque), a lista, e marca todos com
+  " - DESATIVADO" no fim do nome. O STATUS não muda (continua vendável). Vai para o
+  Histórico: dá para desfazer. Quando chega nota do produto, a marca sai sozinha.
+
+### 17. Endereço que não muda — pronto
+- O roteador troca o IP do PC servidor quase todo dia. O Plugin agora se anuncia na rede
+  como **`plugin-solus.local`** (mDNS, o mesmo jeito das impressoras de rede, sem
+  biblioteca) e o Windows também acha pelo nome do PC. A janela do Plugin e a aba
+  Ajustes mostram `https://plugin-solus.local:3536`.
+- O certificado HTTPS vale para os nomes e para **os 254 IPs da rede da loja**: o IP
+  pode mudar que o celular NÃO pede "site não seguro" de novo (antes o certificado era
+  refeito a cada troca de IP).
+- A faixa de instalar manda instalar pelo NOME (instalado pelo IP, o app quebra quando
+  o IP muda). Android antigo pode não entender ".local": a aba Ajustes ensina a reservar
+  o IP no roteador, que resolve para todos.
+
 ### 14. Aviso de crédito da IA — pronto
 - Conta da OpenAI sem saldo responde 429 `insufficient_quota`, e isso **não passa
   esperando**. A faixa vermelha no topo de todas as telas avisa, com o link do Billing,
@@ -460,6 +523,13 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 
 ### Pendente
 - **Testar com nota e lista reais da loja** (é o próximo passo).
+- **Na loja, conferir o nome no celular**: abrir `https://plugin-solus.local:3536` no
+  celular. Se não abrir (Android antigo), reservar o IP do PC servidor no roteador.
+- **App Android de verdade (.apk)**: não feito. Precisa instalar o JDK 17 e as ferramentas
+  do Android (~1–2 GB) neste PC. Com o endereço fixo, o app instalado pelo navegador
+  (PWA) já funciona como app; decidir com o Igor se ainda vale.
+- Na loja, depois de atualizar: os celulares vão pedir "site não seguro" UMA última vez
+  (o certificado foi refeito para valer para a rede toda).
 - **Trocar a chave da OpenAI** por uma nova (a atual foi colada numa conversa; gerar
   outra em platform.openai.com e colar em Ajustes leva 1 minuto).
 - Na loja, rodar `node src/ferramentas/campos-fiscais.mjs` para conferir o nome real das

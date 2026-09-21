@@ -150,6 +150,13 @@ export function aplicarAjustes(itens, ajustes) {
       quantidadeUnidades: quantidadeFinal,
       unidadesPorCaixa: ajuste?.unidadesPorCaixa > 1 ? ajuste.unidadesPorCaixa : item.unidadesPorCaixa,
       convertido: ajuste?.unidadesPorCaixa > 1 ? true : item.convertido,
+      // a pessoa disse quantas vem na caixa: trocar o produto na tela nao desfaz isso
+      caixaDaObservacao: ajuste?.unidadesPorCaixa > 1 ? true : item.caixaDaObservacao,
+      ...(ajuste?.unidadesPorCaixa > 1 ? {
+        confianca: 'alta',
+        origemDaCaixa: 'observacao',
+        explicacao: `Você informou ${ajuste.unidadesPorCaixa} unidades por ${item.unidadeComercial || item.unidadeOriginal || 'caixa'}.`,
+      } : {}),
       custoTotalItem: arredondar(custoTotal, 2),
       custoUnitario: arredondar(custoTotal / quantidadeFinal, 4),
       ajusteAplicado: explicacoes.join(' · '),

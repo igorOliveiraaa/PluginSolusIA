@@ -12,10 +12,12 @@
 
 import { buscarPorBarras, buscarPorDescricao, buscarPorCodigo } from '../db/produtos.js';
 import { chavesDoProduto, codigosDasChaves } from '../db/catalogo.js';
-import { ultimoPrecoDoCliente, ultimoPrecoDaLoja, ultimasCompras } from '../db/clientes.js';
+import { ultimoPrecoDoCliente, ultimoPrecoDaLoja, produtosQueOClienteComprou } from '../db/clientes.js';
 
 // acima disso, casou com quase tudo que foi pedido e pode escolher sozinho
 const COBERTURA_SUFICIENTE = 0.85;
+// o que a PESSOA decidiu: trocar o cliente depois nunca mexe nesses
+const ESCOLHIDO_NA_MAO = new Set(['escolhido na tela', 'adicionado na tela', 'código de barras']);
 // diferenca minima para o primeiro ser "claramente melhor" que o segundo
 const DISTANCIA_SEGURA = 0.15;
 
@@ -25,10 +27,24 @@ function textoDeBusca(item) {
 }
 
 /**
+ * Entre os produtos que o cliente ja comprou, um e claramente "o dele"?
+ * Sim quando o mais recente tambem e o que ele mais compra, ou quando o outro
+ * ficou para tras (ultima compra 90 dias ou mais antes). Assim quem compra a
+ * Rende Mais toda semana e levou outra marca UMA vez continua recebendo a Rende
+ * Mais - e so quem divide de verdade entre duas marcas e perguntado.
+ */
+function umDominaOsOutros(queEleJaLevou, historico) {
+  const [primeiro, segundo] = queEleJaLevou.map((c) => historico.get(c.codigo));
+  const DIAS_90 = 90 * 24 * 3600 * 1000;
+  if (primeiro.ultima - segundo.ultima >= DIAS_90) return true;
+  return primeiro.vezes >= 2 * segundo.vezes;
+}
+
+/**
  * Procura os candidatos de um item no catalogo.
  * Devolve o escolhido (quando da para ter certeza) e sempre a lista de opcoes.
  */
-async function procurarCandidatos(item, preferidos) {
+async function procurarCandidatos(item, preferidos, historico = new Map()) {
   // 1) se o cliente mandou um codigo de barras, acabou a duvida
   const digitos = String(item.descricao || '').replace(/\D/g, '');
   if (digitos.length >= 12) {
@@ -47,10 +63,42 @@ async function procurarCandidatos(item, preferidos) {
   if (!candidatos.length) {
     return { escolhido: null, opcoes: [], certeza: 'nenhuma', comoAchou: 'não encontrado' };
   }
+  for (const candidato of candidatos) {
+    const dele = historico.get(candidato.codigo);
+    if (dele) candidato.doCliente = { vezes: dele.vezes, ultima: dele.ultima };
+  }
 
   const melhor = candidatos[0];
   const segundo = candidatos[1];
   const jaComprou = preferidos.includes(melhor.codigo);
+
+  // O cliente ja levou MAIS DE UM dos que servem ("lava roupas 5l": comprou o
+  // Harmoniex e o Coco). Escolher um dos dois seria chute - pergunta, com os
+  // que ELE compra na frente.
+  const queEleJaLevou = candidatos
+    .filter((c) => c.cobertura >= COBERTURA_SUFICIENTE && historico.has(c.codigo))
+    .sort((a, b) => historico.get(b.codigo).ultima - historico.get(a.codigo).ultima);
+  if (queEleJaLevou.length >= 2 && !umDominaOsOutros(queEleJaLevou, historico)) {
+    const resto = candidatos.filter((c) => !queEleJaLevou.includes(c));
+    return {
+      escolhido: null,
+      opcoes: [...queEleJaLevou, ...resto].slice(0, 6),
+      certeza: 'empate',
+      comoAchou: 'esse cliente já levou mais de um destes',
+    };
+  }
+
+  // um so dos que servem e "o dele" (ou um domina): e esse, mesmo que outra marca
+  // venda mais na loja - o orcamento e para ESTE cliente
+  if (queEleJaLevou.length) {
+    return {
+      escolhido: queEleJaLevou[0],
+      // na lista: primeiro o que ELE comprou (do mais recente), depois o mais provavel
+      opcoes: [...queEleJaLevou, ...candidatos.filter((c) => !queEleJaLevou.includes(c))].slice(0, 6),
+      certeza: 'alta',
+      comoAchou: 'esse cliente já levou',
+    };
+  }
 
   const claramenteMelhor = !segundo || (melhor.nota - segundo.nota) >= DISTANCIA_SEGURA;
   const casouQuaseTudo = melhor.cobertura >= COBERTURA_SUFICIENTE;
@@ -183,10 +231,26 @@ export async function montarItemComProduto({
 
 /** Codigos que este cliente ja comprou - na duvida, sao eles que ganham. */
 async function produtosQueOClienteJaLevou(cliente) {
-  if (!cliente?.codigo) return { preferidos: [], compras: [] };
-  const compras = await ultimasCompras(cliente.codigo, 120);
-  const preferidos = await codigosDasChaves(compras.map((c) => c.produto)).catch(() => []);
-  return { preferidos, compras };
+  const vazio = { preferidos: [], compras: [], historico: new Map() };
+  if (!cliente?.codigo) return vazio;
+  // "CONSUMIDOR" e o balcao inteiro, nao uma pessoa: o historico dele e a loja toda
+  if (/^CONSUMIDOR/i.test(String(cliente.nome || '').trim())) return vazio;
+
+  // tudo o que ele comprou nos ultimos 3 anos, do mais recente para o mais antigo
+  const compras = await produtosQueOClienteComprou(cliente.codigo).catch(() => []);
+  const historico = new Map();          // codigo -> { ultima (ms), vezes }
+  const preferidos = [];
+  for (const compra of compras) {
+    const [codigo] = await codigosDasChaves([compra.chave]).catch(() => []);
+    if (!codigo) continue;
+    const quando = compra.ultima ? new Date(compra.ultima).getTime() : 0;
+    const atual = historico.get(codigo) || { ultima: 0, vezes: 0 };
+    atual.ultima = Math.max(atual.ultima, quando);
+    atual.vezes += compra.vezes;
+    historico.set(codigo, atual);
+    if (!preferidos.includes(codigo)) preferidos.push(codigo);
+  }
+  return { preferidos, compras, historico };
 }
 
 /**
@@ -194,11 +258,11 @@ async function produtosQueOClienteJaLevou(cliente) {
  * `lista` vem da IA (ou digitada), `cliente` pode ser null (consumidor).
  */
 export async function montarOrcamento({ lista, cliente, nomeCliente = '', mostrarCusto = false }) {
-  const { preferidos } = await produtosQueOClienteJaLevou(cliente);
+  const { preferidos, historico } = await produtosQueOClienteJaLevou(cliente);
 
   const itens = [];
   for (const bruto of lista.itens) {
-    const achado = await procurarCandidatos(bruto, preferidos);
+    const achado = await procurarCandidatos(bruto, preferidos, historico);
     const item = await montarItemComProduto({
       base: { ...bruto, numero: itens.length + 1 },
       produto: achado.escolhido,
@@ -230,10 +294,36 @@ export async function trocarClienteDoOrcamento(orcamento, cliente, mostrarCusto 
   orcamento.cliente = cliente || null;
   // nome sem cadastro so vale quando nao ha cliente do Solus escolhido
   orcamento.nomeCliente = cliente ? '' : limparNomeLivre(nomeCliente);
-  orcamento.preferidos = (await produtosQueOClienteJaLevou(cliente)).preferidos;
+  const doCliente = await produtosQueOClienteJaLevou(cliente);
+  orcamento.preferidos = doCliente.preferidos;
+  const historicoDoCliente = doCliente.historico;
 
   for (let i = 0; i < orcamento.itens.length; i += 1) {
     const item = orcamento.itens[i];
+
+    // O que o PLUGIN escolheu sozinho e escolhido de novo, agora sabendo o que ESTE
+    // cliente compra (antes, escolher o cliente depois so trocava os precos e o
+    // produto continuava o "mais vendido da loja", nao o dele). O que a pessoa
+    // escolheu ou adicionou na mao fica como esta.
+    if (!ESCOLHIDO_NA_MAO.has(item.comoAchou)) {
+      const achado = await procurarCandidatos(item, orcamento.preferidos, historicoDoCliente);
+      const mudou = (achado.escolhido?.codigo || null) !== (item.produto?.codigo || null);
+      if (mudou || !item.produto) {
+        orcamento.itens[i] = await montarItemComProduto({
+          base: item,
+          produto: achado.escolhido,
+          cliente,
+          mostrarCusto,
+          // produto trocado volta ao preco de tabela dele; o mesmo mantem o preco ajustado
+          precoUnitario: mudou ? undefined : item.precoUnitario,
+          comoAchou: achado.comoAchou,
+          opcoes: achado.opcoes,
+        });
+        orcamento.itens[i].certeza = achado.certeza;
+        continue;
+      }
+    }
+
     if (!item.produto) continue;
     orcamento.itens[i] = await montarItemComProduto({
       base: item,

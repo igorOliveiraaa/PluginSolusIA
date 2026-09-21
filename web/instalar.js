@@ -42,8 +42,19 @@ function esconder() {
   faixa.innerHTML = '';
 }
 
-/** Endereco https equivalente ao que a pessoa esta acessando agora. */
+// o endereco com NOME (plugin-solus.local), que o servidor informa. Com ele o app
+// instalado nao quebra quando o roteador troca o IP do PC servidor.
+let enderecos = null;
+const buscarEnderecos = fetch('/api/enderecos')
+  .then((r) => r.json())
+  .then((dados) => { enderecos = dados.ok ? dados : null; })
+  .catch(() => { enderecos = null; });
+
+const acessandoPeloIp = () => /^\d+\.\d+\.\d+\.\d+$/.test(location.hostname);
+
+/** Endereco https para instalar: o com nome (que nao muda) ou, sem ele, o mesmo IP. */
 function enderecoSeguro() {
+  if (enderecos?.nomeFixo) return `${enderecos.nomeFixo}${location.pathname}`;
   const porta = Number(location.port || 3535) + 1;
   return `https://${location.hostname}:${porta}${location.pathname}`;
 }
@@ -102,16 +113,20 @@ window.addEventListener('appinstalled', () => {
  * Quando o navegador nao manda o aviso, ainda assim da para ajudar:
  * no iPhone, explicando o caminho; no http, mandando para o https.
  */
-function conferirOutrosCasos() {
+async function conferirOutrosCasos() {
+  await buscarEnderecos;
   if (jaInstalado() || foiDispensado() || aviso) return;
 
-  // acesso por http pelo IP: instalar so funciona em endereco seguro
+  // acesso por http, ou pelo IP: instalar so funciona em endereco seguro - e,
+  // pelo IP, o app instalado para de abrir no dia em que o roteador trocar o IP
   const local = ['localhost', '127.0.0.1'].includes(location.hostname);
-  if (location.protocol === 'http:' && !local) {
+  const precisaTrocar = !local && (location.protocol === 'http:' || (acessandoPeloIp() && enderecos?.nomeFixo));
+  if (precisaTrocar) {
     mostrar(
-      '<strong>Para instalar o aplicativo, use o endereço seguro.</strong>'
-      + ` No celular, abra <code>${escapar(enderecoSeguro())}</code>.`
-      + ' O aparelho avisa uma vez que "o site não é seguro" — é o certificado da'
+      '<strong>Para instalar o aplicativo, use o endereço que não muda.</strong>'
+      + ` Abra <code>${escapar(enderecoSeguro())}</code>.`
+      + (acessandoPeloIp() ? ' Pelo número (IP), o app instalado para de abrir quando o roteador troca o IP do PC.' : '')
+      + ' Na primeira vez o aparelho avisa que "o site não é seguro" — é o certificado da'
       + ' própria loja: toque em <em>Avançado</em> e depois em <em>Continuar</em>.',
       (acoes) => {
         const botao = document.createElement('button');
@@ -138,24 +153,50 @@ function conferirOutrosCasos() {
 // avisa na hora. Nos outros casos o Chrome demora um pouco para decidir se da
 // para instalar, e so depois disso vale mostrar alguma coisa.
 const acessoLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
-if (location.protocol === 'http:' && !acessoLocal) conferirOutrosCasos();
+if ((location.protocol === 'http:' || acessandoPeloIp()) && !acessoLocal) conferirOutrosCasos();
 else setTimeout(conferirOutrosCasos, 2500);
 
 // ---------------------------------------------------------------------------
 // O mesmo assunto na aba Ajustes, para quem fechou a faixa achar depois
 // ---------------------------------------------------------------------------
 
-function desenharNosAjustes() {
+/** O quadro "endereco que nao muda", com o que fazer se o celular nao abrir. */
+function quadroDoEndereco() {
+  if (!enderecos?.nomeFixo) return '';
+  return `
+    <div class="endereco-fixo">
+      <span class="ajuda" style="margin:0">Endereço que não muda (use no celular e nos outros PCs):</span>
+      <code>${escapar(enderecos.nomeFixo)}</code>
+      <span class="ajuda" style="margin:0">Nos PCs com Windows também funciona: <code>${escapar(enderecos.nomeDoPc)}</code></span>
+      <details class="caminho-manual">
+        <summary>O celular não abriu pelo nome?</summary>
+        <p class="ajuda">Alguns Android mais antigos não entendem o nome ".local". A solução
+          definitiva é <strong>fixar o IP do PC servidor no roteador</strong> — aí o número
+          ${enderecos.ip ? `<code>${escapar(enderecos.ip)}</code>` : ''} nunca mais muda:</p>
+        <ol class="ajuda">
+          <li>No PC servidor, abra <code>http://192.168.0.1</code> (ou o endereço do roteador,
+            escrito embaixo dele) e entre com a senha do roteador.</li>
+          <li>Procure <em>DHCP</em> → <em>Reserva de endereço</em> (ou "IP fixo", "Address Reservation").</li>
+          <li>Escolha este PC na lista e reserve o IP ${enderecos.ip ? `<code>${escapar(enderecos.ip)}</code>` : 'atual'}. Salve.</li>
+          <li>Instale o app no celular pelo endereço <code>${escapar(enderecos.ipDeHoje || '')}</code>.</li>
+        </ol>
+      </details>
+    </div>`;
+}
+
+async function desenharNosAjustes() {
   const area = $('#instalar-ajustes');
   if (!area) return;
+  await buscarEnderecos;
 
   if (jaInstalado()) {
-    area.innerHTML = '<div class="item-aviso info">O Plugin já está instalado neste aparelho.</div>';
+    area.innerHTML = '<div class="item-aviso info">O Plugin já está instalado neste aparelho.</div>'
+      + quadroDoEndereco();
     return;
   }
 
   if (aviso) {
-    area.innerHTML = '<button class="botao principal largura-total" id="btn-instalar-ajustes">Instalar o aplicativo</button>';
+    area.innerHTML = '<button class="botao principal largura-total" id="btn-instalar-ajustes">Instalar o aplicativo</button>' + quadroDoEndereco();
     $('#btn-instalar-ajustes').addEventListener('click', instalarAgora);
     return;
   }
@@ -165,7 +206,7 @@ function desenharNosAjustes() {
     area.innerHTML = `
       <div class="item-aviso">Para instalar, abra o endereço seguro:
         <code>${escapar(enderecoSeguro())}</code></div>
-      <button class="botao principal largura-total" id="btn-ir-seguro">Abrir o endereço seguro</button>`;
+      <button class="botao principal largura-total" id="btn-ir-seguro">Abrir o endereço seguro</button>` + quadroDoEndereco();
     $('#btn-ir-seguro').addEventListener('click', () => { location.href = enderecoSeguro(); });
     return;
   }
@@ -175,7 +216,7 @@ function desenharNosAjustes() {
       <div class="item-aviso info">
         No iPhone: toque em <strong>Compartilhar</strong> e escolha
         <strong>Adicionar à Tela de Início</strong>.
-      </div>`;
+      </div>` + quadroDoEndereco();
     return;
   }
 
@@ -184,7 +225,7 @@ function desenharNosAjustes() {
       Este navegador não ofereceu a instalação. No computador, procure o ícone de
       instalar na barra de endereço; no celular, use o menu do navegador em
       "Instalar aplicativo" ou "Adicionar à tela inicial".
-    </p>`;
+    </p>` + quadroDoEndereco();
 }
 
 document.addEventListener('abriu-tela', (evento) => {

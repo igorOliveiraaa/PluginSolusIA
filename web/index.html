@@ -82,7 +82,7 @@
       <summary>Não apareceu? Informar o caminho na mão</summary>
       <label class="campo">
         <span>Caminho do banco <em>(o que está no BANCO.INI da pasta do Solus)</em></span>
-        <input type="text" id="caminho-manual" placeholder="C:SolusSolussisBANCOBANCO.FDB">
+        <input type="text" id="caminho-manual" placeholder="C:\Solus\Solussis\BANCO\BANCO.FDB">
       </label>
       <button class="botao secundario largura-total" id="btn-testar-caminho">Testar esse banco</button>
     </details>
@@ -454,11 +454,27 @@
         aqui — uma por linha.
       </p>
       <label class="campo">
-        <span>Pastas <em>(ex.: \CAIXA1ACBrMonitorPLUSLogs)</em></span>
+        <span>Pastas <em>(ex.: \\CAIXA1\ACBrMonitorPLUS\Logs)</em></span>
         <textarea id="cfg-pastas-notas" rows="3" placeholder="C:/ACBrMonitorPLUS/Logs"></textarea>
       </label>
       <button id="btn-testar-pastas" class="botao secundario">Testar pastas</button>
       <div id="resultado-pastas" class="resultado-teste"></div>
+    </div>
+
+    <div class="cartao" id="cartao-parados">
+      <h2>Produtos parados</h2>
+      <p class="ajuda">
+        Sem venda, sem entrada de nota e sem mudança de preço há mais de 2 anos.
+        Marcar escreve <strong>" - DESATIVADO"</strong> no fim do nome, para todo mundo saber
+        que não é mais trabalhado. O produto continua no Solus; quando chegar nota dele,
+        o Plugin tira a marca sozinho. Dá para desfazer pelo Histórico.
+      </p>
+      <div id="resumo-parados" class="ajuda">Contando...</div>
+      <div class="acoes-pdf">
+        <button id="btn-ver-parados" class="botao secundario" data-icone="lista"><span>Ver a lista</span></button>
+        <button id="btn-marcar-parados" class="botao principal" data-icone="aviso" disabled><span>Marcar como DESATIVADO</span></button>
+      </div>
+      <div id="lista-parados"></div>
     </div>
 
     <div class="cartao">

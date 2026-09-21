@@ -79,6 +79,10 @@ function montarProduto(linha) {
     codigo: String(linha.CODIGO || '').trim(),
     descricao: lerTexto(linha.DESCRICAO),
     barras: soDigitos(linha.BARRAS) || soDigitos(linha.CODBARRAS),
+    // como esta gravado de verdade: tem loja com 'barras' do tipo 02.01.06.0076, e a
+    // VENDA guarda assim. Sem o original, 'o cliente pagou' nao achava a venda.
+    barrasNoBanco: String(linha.BARRAS || '').trim(),
+    codBarras: String(linha.CODBARRAS || '').trim(),
     referencia: String(linha.REFERENCIA || '').trim(),
     unidade: String(linha.UNIDADE || '').trim(),
     unidadeCompra: String(linha.UNCOMPRA || '').trim(),
@@ -155,9 +159,16 @@ export async function buscarPorCodigoDoFornecedor(codigoNoFornecedor, codigoForn
     );
   }
 
-  const barras = soDigitos(linhas?.[0]?.BARRAS);
-  if (!barras) return null;
-  return buscarPorBarras(barras);
+  const bruto = String(linhas?.[0]?.BARRAS || '').trim();
+  if (!bruto) return null;
+  // o vinculo pode apontar para um barras com pontos (02.01.06.0076) ou para o codigo
+  const exato = await consultar(
+    `SELECT FIRST 1 ${CAMPOS_PRODUTO} FROM PRODUTO WHERE TRIM(BARRAS) = ? OR TRIM(CODIGO) = ?`,
+    [bruto, bruto.slice(0, 6)]
+  );
+  if (exato.length) return montarProduto(exato[0]);
+  const barras = soDigitos(bruto);
+  return barras ? buscarPorBarras(barras) : null;
 }
 
 /**

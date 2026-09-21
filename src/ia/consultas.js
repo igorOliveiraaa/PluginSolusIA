@@ -10,6 +10,7 @@ import { consultar, paraNumero, campoTexto, lerTexto } from '../db/firebird.js';
 import { buscarPorBarras, buscarPorDescricao, buscarPorCodigo, semelhanca } from '../db/produtos.js';
 import { chavesDoProduto } from '../db/catalogo.js';
 import { porMetroQuadrado } from '../logica/medidas.js';
+import { VENDA_VALIDA, PEDIDO_FATURADO, ITEM_NAO_ESTORNADO } from '../db/venda-valida.js';
 
 const TETO = 50;
 
@@ -155,8 +156,7 @@ export async function ultimasVendasDoProduto({ termo, quantos = 10 }) {
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
       WHERE TRIM(I.PRODUTO) IN (${marcadores(chaves)})
-        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
-        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+        AND ${VENDA_VALIDA}
       ORDER BY I.DATA DESC`,
     chaves
   );
@@ -282,8 +282,7 @@ export async function maisVendidos({ dias = 30, quantos = 10 }) {
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
       WHERE I.DATA >= ?
-        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
-        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+        AND ${VENDA_VALIDA}
       GROUP BY I.PRODUTO, I.DESCRICAO
       ORDER BY 3 DESC`,
     [desde]
@@ -320,8 +319,7 @@ export async function comprasDoCliente({ cliente, quantos = 15 }) {
        FROM ITEMPEDIDO I
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
       WHERE TRIM(P.CODCLIENTE) IN (${marcadores(codigos)})
-        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
-        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+        AND ${VENDA_VALIDA}
       ORDER BY I.DATA DESC`,
     codigos
   );
@@ -362,7 +360,7 @@ export async function melhoresClientes({ dias = 90, quantos = 10 }) {
             SUM(P.TOTPEDIDO) AS TOTAL, COUNT(*) AS COMPRAS
        FROM PEDIDOS P
       WHERE P.EMISSAO >= ?
-        AND (P.STATUS IS NULL OR P.STATUS = 'FATURADO')
+        AND ${PEDIDO_FATURADO}
         AND P.CODCLIENTE IS NOT NULL AND P.CODCLIENTE <> ''
       GROUP BY P.CODCLIENTE, P.NOMECLI
       ORDER BY 3 DESC`,
@@ -450,8 +448,7 @@ export async function lucroDoPeriodo({ dias = 30, mes = null, ano = null, quanto
   }
 
   const filtro = `I.DATA >= ? AND I.DATA < ?
-      AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
-      AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')`;
+      AND ${VENDA_VALIDA}`;
 
   const [total] = await consultar(
     `SELECT COUNT(DISTINCT P.NUMERO) AS PEDIDOS, COUNT(*) AS ITENS,
@@ -549,7 +546,7 @@ export async function resumoDaLoja() {
   trintaDias.setDate(trintaDias.getDate() - 30);
   const [vendas] = await consultar(
     `SELECT COUNT(*) AS QUANTAS, SUM(TOTPEDIDO) AS TOTAL FROM PEDIDOS
-      WHERE EMISSAO >= ? AND (STATUS IS NULL OR STATUS = 'FATURADO')`,
+      WHERE EMISSAO >= ? AND TRIM(STATUS) = 'FATURADO'`,
     [trintaDias]
   );
   const [negativos] = await consultar(
@@ -583,7 +580,9 @@ export async function produtosParados({ dias = 180, quantos = 15 }) {
         AND CAST(REPLACE(P.ESTOQUEATUAL, ',', '.') AS DOUBLE PRECISION) > 0
         AND NOT EXISTS (
               SELECT 1 FROM ITEMPEDIDO I
-               WHERE TRIM(I.PRODUTO) = TRIM(P.BARRAS) AND I.DATA >= ?
+                JOIN PEDIDOS PE ON PE.NUMERO = I.NUMERO
+               WHERE TRIM(I.PRODUTO) IN (TRIM(P.BARRAS), TRIM(P.CODIGO)) AND I.DATA >= ?
+                 AND TRIM(PE.STATUS) = 'FATURADO' AND ${ITEM_NAO_ESTORNADO}
             )
       ORDER BY CAST(REPLACE(P.ESTOQUEATUAL, ',', '.') AS DOUBLE PRECISION) * P.PRECOCUSTO DESC`,
     [desde]
@@ -661,8 +660,7 @@ export async function ultimaVendaParaCliente({ termo, cliente, quantos = 5 }) {
        JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
       WHERE TRIM(I.PRODUTO) IN (${marcadores(chaves)})
         AND TRIM(P.CODCLIENTE) IN (${marcadores(codigos)})
-        AND (P.STATUS IS NULL OR P.STATUS <> 'CANCELADO')
-        AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+        AND ${VENDA_VALIDA}
       ORDER BY I.DATA DESC`,
     [...chaves, ...codigos]
   );

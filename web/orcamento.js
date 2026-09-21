@@ -376,7 +376,12 @@ function bloco(titulo, valor, detalhe = '', classe = '') {
  */
 function etiquetasDaOpcao(produto, posicao) {
   const etiquetas = [];
-  if (posicao === 0) etiquetas.push('<span class="etiqueta ok">mais provável</span>');
+  if (produto.doCliente) {
+    const quando = produto.doCliente.ultima ? new Date(produto.doCliente.ultima).toLocaleDateString('pt-BR') : '';
+    etiquetas.push(`<span class="etiqueta ok">o cliente levou ${produto.doCliente.vezes}x${quando ? ' · última ' + quando : ''}</span>`);
+  } else if (posicao === 0) {
+    etiquetas.push('<span class="etiqueta ok">mais provável</span>');
+  }
   if (produto.motivo) etiquetas.push(`<span class="etiqueta info">${escapar(produto.motivo)}</span>`);
   if (produto.cancelado) etiquetas.push('<span class="etiqueta erro">cancelado</span>');
   else if (produto.estoque <= 0) etiquetas.push('<span class="etiqueta aviso">sem estoque</span>');

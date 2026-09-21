@@ -21,6 +21,10 @@ import { aplicarNota, desfazer } from './db/gravacao.js';
 import { lerXmlNfe, pareceXmlNfe } from './leitura/xml.js';
 import { lerDocumentoComIA, testarChave, listarModelos, interpretarObservacao } from './leitura/ia.js';
 import { provedorDaIA, situacaoDaIA, MENSAGEM_SEM_CREDITO } from './leitura/openai.js';
+import { decidirCaixa } from './logica/caixa.js';
+import { listarParados, marcarParados } from './db/parados.js';
+import { anunciarNomeNaRede, NOME_NA_REDE } from './nome-na-rede.js';
+import { lembrarCaixa, guardarCaixas } from './memoria-caixas.js';
 import { montarConferencia } from './logica/conferencia.js';
 import { analisarItem } from './logica/precos.js';
 import {
@@ -210,6 +214,9 @@ app.post('/api/trocar-produto', exigirLogin, async (req, res) => {
     if (!produto) throw new Error('Produto nao encontrado no Solus.');
 
     const cfg = carregarConfig();
+    // produto trocado: caixa x unidade e decidido de novo com a unidade DESTE produto
+    // (trocar de um que se vende em UN para um vendido em CX muda a quantidade)
+    Object.assign(item, decidirCaixa(item, produto, lembrarCaixa));
     item.produto = produto;
     item.acao = 'atualizar';
     item.comoAchou = 'escolhido na tela';
@@ -276,7 +283,24 @@ app.post('/api/aplicar', exigirLogin, exigirPermissao('mexerProduto'), async (re
     const paraGravar = itens.filter((i) => i.acao !== 'ignorar');
     if (!paraGravar.length) throw new Error('Nenhum item foi marcado para gravar.');
 
-    const registros = await aplicarNota({ itens, atualizarEstoque });
+    const registros = await aplicarNota({ itens, atualizarEstoque, fornecedor: conferencia.fornecedor });
+
+    // aprende quantas unidades vem na caixa de cada produto (o que ficou decidido
+    // na tela, inclusive o que a pessoa corrigiu), para a proxima nota sair sozinha
+    const criados = registros.filter((r) => r.acao === 'criado');
+    let proximoCriado = 0;
+    guardarCaixas(itens.filter((i) => i.acao !== 'ignorar').map((item) => {
+      const codigo = item.acao === 'criar' ? criados[proximoCriado++]?.codigo : item.produto?.codigo;
+      const qCom = Number(item.quantidadeComercial) || 0;
+      const porCaixa = qCom > 0 ? Number(item.quantidadeUnidades) / qCom : 0;
+      return {
+        codigoProduto: codigo,
+        unidadeDaNota: item.unidadeComercial || item.unidadeOriginal,
+        porCaixa: Number.isInteger(porCaixa) ? porCaixa : 0,
+        fornecedor: conferencia.fornecedor?.nome || '',
+        descricaoNaNota: item.descricao,
+      };
+    }));
 
     const historico = salvarAplicacao({
       nota: conferencia,
@@ -488,6 +512,61 @@ app.get('/api/testar-ia', exigirLogin, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Produtos parados ha mais de 2 anos -> " - DESATIVADO" no nome
+// ---------------------------------------------------------------------------
+
+app.get('/api/parados', exigirLogin, exigirPermissao('gerente'), async (req, res) => {
+  try {
+    const parados = await listarParados();
+    res.json({
+      ok: true,
+      total: parados.total,
+      comEstoque: parados.comEstoque,
+      dias: parados.dias,
+      // a tela mostra os primeiros; marcar vale para todos
+      produtos: parados.produtos.slice(0, Number(req.query.limite) || 300),
+    });
+  } catch (erro) {
+    responderErro(res, erro);
+  }
+});
+
+app.post('/api/parados/marcar', exigirLogin, exigirPermissao('gerente'), async (req, res) => {
+  try {
+    const codigos = Array.isArray(req.body?.codigos) ? req.body.codigos.map(String) : null;
+    const registros = await marcarParados(codigos);
+    if (!registros.length) throw new Error('Nenhum produto parado para marcar.');
+    const historico = salvarAplicacao({
+      nota: {
+        origem: 'parados',
+        numero: 'parados',
+        fornecedor: { nome: `Produtos parados marcados como DESATIVADO (${registros.length})` },
+      },
+      registros,
+      operador: req.operador?.nome || '',
+      observacao: 'Sem venda, entrada ou mudanca de preco ha mais de 2 anos',
+    });
+    res.json({ ok: true, marcados: registros.length, historico: historico.id });
+  } catch (erro) {
+    responderErro(res, erro, 500);
+  }
+});
+
+/** Os enderecos do Plugin na rede (a tela de Ajustes e a faixa de instalar mostram). */
+app.get('/api/enderecos', (req, res) => {
+  const ips = ipsDaMaquina().filter((ip) => !ip.startsWith('169.254.'));
+  const daLoja = ips.some(ehRedeLocal) ? ips.filter(ehRedeLocal) : ips;
+  res.json({
+    ok: true,
+    nomeFixo: nomeNaRedeOk ? `https://${NOME_NA_REDE}:${portaSegura}` : null,
+    nomeDoPc: `https://${os.hostname().toLowerCase()}:${portaSegura}`,
+    ipDeHoje: daLoja[0] ? `https://${daLoja[0]}:${portaSegura}` : null,
+    ip: daLoja[0] || null,
+    portaSegura,
+  });
+});
+
 /** A tela pergunta de tempos em tempos: se o credito acabou, mostra a faixa. */
 app.get('/api/ia/situacao', exigirLogin, (req, res) => {
   const situacao = situacaoDaIA();
@@ -555,6 +634,14 @@ try {
 }
 
 registrarQueEstaRodando();
+// o nome que nao muda (plugin-solus.local): o app instalado no celular e no outro
+// PC continua abrindo mesmo quando o roteador troca o IP deste PC
+let nomeNaRedeOk = Boolean(anunciarNomeNaRede({
+  aoFalhar: (erro) => {
+    nomeNaRedeOk = false;
+    console.error('[aviso] nao deu para anunciar o nome plugin-solus.local:', erro.message);
+  },
+}));
 mostrarEnderecos();
 abrirNoNavegador();
 
@@ -601,8 +688,13 @@ function mostrarEnderecos() {
   console.log('  Plugin IA Solus');
   console.log('==================================================');
   console.log(`  Neste computador:   http://localhost:${porta}`);
+  if (nomeNaRedeOk && certificadoOk) {
+    console.log('\n  ENDERECO QUE NAO MUDA (use este no celular e nos outros PCs):');
+    console.log(`     https://${NOME_NA_REDE}:${portaSegura}`);
+    console.log(`     https://${os.hostname().toLowerCase()}:${portaSegura}   (outros PCs com Windows)`);
+  }
   if (ips.length) {
-    console.log('\n  No celular (pelo WiFi da loja):');
+    console.log('\n  Pelo IP de hoje (muda quando o roteador quiser):');
     for (const ip of ips) {
       console.log(certificadoOk ? `     https://${ip}:${portaSegura}` : `     http://${ip}:${porta}`);
     }

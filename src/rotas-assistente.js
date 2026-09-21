@@ -10,6 +10,10 @@ export const rotasAssistente = express.Router();
 // guarda a ultima resposta de cada operador, para poder exportar depois
 const ultimaResposta = new Map();
 
+// Guardada por SESSAO (aparelho), nao por usuario: o mesmo login no celular e no
+// PC exportava a pergunta do outro aparelho.
+const chaveDaSessao = (req) => String(req.headers['x-sessao'] || req.query.sessao || req.operador.codigo);
+
 const MAXIMO_DE_FALAS = 40;
 const MAXIMO_DE_LETRAS = 40000;
 
@@ -47,12 +51,14 @@ rotasAssistente.post('/api/perguntar', exigirLogin, async (req, res) => {
 
     const resultado = await perguntar({ pergunta, historico, operador: req.operador });
 
-    ultimaResposta.set(req.operador.codigo, {
+    ultimaResposta.set(chaveDaSessao(req), {
       pergunta,
       resposta: resultado.resposta,
       dados: resultado.dadosParaExportar,
       quando: Date.now(),
     });
+    // uma por aparelho, e so as mais recentes (sessao velha nao fica ocupando memoria)
+    while (ultimaResposta.size > 200) ultimaResposta.delete(ultimaResposta.keys().next().value);
 
     res.json({
       ok: true,
@@ -76,7 +82,7 @@ rotasAssistente.post('/api/perguntar', exigirLogin, async (req, res) => {
 /** Baixa o resultado da ultima pergunta como planilha ou PDF. */
 rotasAssistente.get('/api/exportar/:formato', exigirLogin, async (req, res) => {
   try {
-    const guardado = ultimaResposta.get(req.operador.codigo);
+    const guardado = ultimaResposta.get(chaveDaSessao(req));
     if (!guardado?.dados?.linhas?.length) {
       throw new Error('Nao tem dados da ultima pergunta para exportar.');
     }

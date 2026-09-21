@@ -17,7 +17,10 @@ import {
 } from '../db/produtos.js';
 import { calcularCustos, explicarCusto, aplicarAjustes } from './custo.js';
 import { analisarItem } from './precos.js';
+import { decidirCaixa } from './caixa.js';
 import { carregarConfig } from '../config.js';
+import { buscarFornecedorPorCnpj } from '../db/fornecedores.js';
+import { lembrarCaixa } from '../memoria-caixas.js';
 
 // so aceitamos casar por descricao sozinho acima deste ponto de parecenca
 const PARECENCA_SEGURA = 0.75;
@@ -82,13 +85,33 @@ export async function montarConferencia(nota, ajustes = null) {
     somarST: regras.somarST !== false,
   });
 
-  // o que a pessoa escreveu na observacao (a IA entendeu, o codigo calcula)
+  // o fornecedor da nota no cadastro do Solus (pelo CNPJ): e o que deixa achar o
+  // produto pelo codigo que o FORNECEDOR usa, e gravar quem foi o ultimo fornecedor
+  if (nota.fornecedor?.cnpj && !nota.fornecedor.codigoNoSolus) {
+    const doSolus = await buscarFornecedorPorCnpj(nota.fornecedor.cnpj);
+    if (doSolus) {
+      nota.fornecedor.codigoNoSolus = doSolus.codigo;
+      nota.fornecedor.nomeNoSolus = doSolus.nome;
+    }
+  }
+
+  // 2) achar o produto no Solus e, com ele, decidir caixa x unidade
+  //    (a loja vende quase tudo separado; o que ela vende fechado entra fechado)
+  const achados = [];
+  for (let i = 0; i < itensComCusto.length; i += 1) {
+    const achado = await encontrarProduto(itensComCusto[i], nota.fornecedor?.codigoNoSolus);
+    achados.push(achado);
+    itensComCusto[i] = decidirCaixa(itensComCusto[i], achado.produto, lembrarCaixa);
+  }
+
+  // o que a pessoa escreveu na observacao (a IA entendeu, o codigo calcula).
+  // Vem DEPOIS da caixa: "a caixa vem com 24" escrito pela pessoa manda.
   itensComCusto = aplicarAjustes(itensComCusto, ajustes);
 
   const itens = [];
-  for (const item of itensComCusto) {
-    // 2) achar o produto no Solus
-    const achado = await encontrarProduto(item, nota.fornecedor?.codigoNoSolus);
+  for (let i = 0; i < itensComCusto.length; i += 1) {
+    const item = itensComCusto[i];
+    const achado = achados[i];
 
     // 3) decidir o preco
     const analise = analisarItem({

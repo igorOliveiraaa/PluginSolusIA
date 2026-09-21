@@ -18,6 +18,7 @@
 
 import { consultar, campoTexto, lerTexto, paraNumero } from './firebird.js';
 import { carregarConfig } from '../config.js';
+import { VENDA_VALIDA } from './venda-valida.js';
 
 const TEMPO_DO_INDICE = 10 * 60 * 1000;   // 10 minutos
 const DIAS_DE_VENDA = 180;                // "o que sai hoje" = ultimos 6 meses
@@ -135,7 +136,7 @@ const semZeros = (valor) => String(valor || '').replace(/^0+/, '') || String(val
  */
 export function chavesDoProduto(produto) {
   if (!produto) return [];
-  const cruas = [produto.barras, produto.codBarras, produto.codigo]
+  const cruas = [produto.barras, produto.barrasNoBanco, produto.codBarras, produto.codigo]
     .filter(Boolean).map((v) => String(v).trim());
   const todas = new Set();
   for (const chave of cruas) {
@@ -210,7 +211,8 @@ async function carregarVendas(produtos) {
       `SELECT TRIM(I.PRODUTO) AS CHAVE, SUM(I.QTD1) AS QUANTIDADE,
               COUNT(*) AS VEZES, MAX(I.DATA) AS ULTIMA
          FROM ITEMPEDIDO I
-        WHERE I.DATA >= ? AND (I.STATUS IS NULL OR I.STATUS <> 'EXTORNADO')
+         JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+        WHERE I.DATA >= ? AND ${VENDA_VALIDA}
         GROUP BY 1`,
       [corte]
     );
@@ -260,7 +262,9 @@ async function carregarAtividade(produtos, porChave) {
   };
 
   const fontes = [
-    ['SELECT TRIM(PRODUTO) AS CHAVE, MAX(DATA) AS ULTIMA FROM ITEMPEDIDO GROUP BY 1', pelaChave],
+    // venda que conta e so a FATURADA: orcamento que ninguem comprou nao e movimento
+    [`SELECT TRIM(I.PRODUTO) AS CHAVE, MAX(I.DATA) AS ULTIMA FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO WHERE ${VENDA_VALIDA} GROUP BY 1`, pelaChave],
     ['SELECT TRIM(PRODUTO) AS CHAVE, MAX(DATA) AS ULTIMA FROM ENTRADA GROUP BY 1', pelaChave],
     ['SELECT TRIM(BARRAS) AS CHAVE, MAX(DATA) AS ULTIMA FROM ALTERAPRECO GROUP BY 1', pelaChave],
   ];
@@ -376,7 +380,9 @@ export async function procurarNoCatalogo(texto, { limite = 12, preferir = [], es
   if (!usadas.length) return [];
 
   const medidasPedidas = procuradas.filter(ehMedida);
-  const preferidas = new Set((preferir || []).map((c) => String(c).trim()).filter(Boolean));
+  // a ordem importa: o primeiro e o que o cliente comprou mais recentemente
+  const preferidas = new Map((preferir || []).map((c) => String(c).trim()).filter(Boolean)
+    .map((codigo, posicao, lista) => [codigo, posicao / Math.max(lista.length, 1)]));
 
   const notas = [];
   for (const produto of indice.produtos) {
@@ -433,7 +439,8 @@ export async function procurarNoCatalogo(texto, { limite = 12, preferir = [], es
     if (produto.parado) nota -= 0.12;
 
     // o que este cliente ja levou ganha de todo o resto
-    if (preferidas.has(produto.codigo)) nota += 0.35;
+    // entre dois que ele ja comprou (Harmoniex x Coco), ganha o que ele levou por ultimo
+    if (preferidas.has(produto.codigo)) nota += 0.35 + 0.1 * (1 - preferidas.get(produto.codigo));
 
     notas.push({ produto, nota, cobertura });
   }

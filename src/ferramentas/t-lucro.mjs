@@ -25,7 +25,12 @@ conferir('usou a ferramenta de lucro',
 
 const texto = String(r.dados.resposta || '');
 console.log('\n     --- resposta ---\n     ' + texto.split('\n').join('\n     ') + '\n');
-conferir('trouxe o numero certo do lucro', /81[.\s]?689|81\.689,88|81689/.test(texto.replace(/\s/g, ' ')));
+// o numero certo sai da conta direto no banco (so venda FATURADA). Antes estava
+// fixo aqui - e era o numero ERRADO, que somava orcamento como se fosse venda.
+const { lucroDoPeriodo } = await import('../ia/consultas.js');
+const conta = await lucroDoPeriodo({ mes: 8, ano: 2025 }, { operador: { permissoes: { verCusto: true } } });
+const esperado = conta.lucroBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+conferir('trouxe o numero certo do lucro', texto.includes(esperado), `esperado R$ ${esperado}`);
 conferir('avisou que e lucro BRUTO', /brut/i.test(texto));
 conferir('avisou que nao desconta despesa',
   /imposto|despesa|aluguel|folha|cart[aã]o|n[aã]o (est[aã]o )?descontad/i.test(texto));

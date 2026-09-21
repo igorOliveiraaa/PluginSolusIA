@@ -37,8 +37,13 @@ function dataSolus(data = new Date()) {
  * Cada item precisa de: acao ('atualizar' | 'criar' | 'ignorar'),
  * quantidadeUnidades, custoUnitario, precoVenda e (quando atualizar) o produto.
  */
-export async function aplicarNota({ itens, atualizarEstoque = true }) {
+export async function aplicarNota({ itens, atualizarEstoque = true, fornecedor = null }) {
   const estrutura = await estruturaDe('PRODUTO');
+  const tamanhos = estrutura.tamanhos;
+  // o fornecedor da nota no cadastro do Solus (codigo + nome), quando foi achado
+  const doFornecedor = fornecedor?.codigoNoSolus
+    ? { codigo: String(fornecedor.codigoNoSolus), nome: String(fornecedor.nomeNoSolus || fornecedor.nome || '') }
+    : null;
   const colunas = estrutura.nomes;
   // CST, IBS/CBS, "acessa valores"... que o produto precisa ter para vender com nota
   const camposFiscais = camposFiscaisDoBanco(estrutura);
@@ -53,14 +58,20 @@ export async function aplicarNota({ itens, atualizarEstoque = true }) {
       if (item.acao === 'ignorar') continue;
 
       if (item.acao === 'criar') {
-        aplicados.push(await criarProduto(executar, colunas, item, camposFiscais));
+        const criado = await criarProduto(executar, colunas, item, camposFiscais, { doFornecedor, tamanhos });
+        criado.vinculoCriado = await vincularAoFornecedor(executar, item, criado, doFornecedor);
+        aplicados.push(criado);
       } else {
-        aplicados.push(await atualizarProduto(executar, colunas, item, {
+        const atualizado = await atualizarProduto(executar, colunas, item, {
           atualizarEstoque,
           usaEstoqueEmpresa,
           campoEstoqueEmpresa,
           camposFiscais,
-        }));
+          doFornecedor,
+          tamanhos,
+        });
+        atualizado.vinculoCriado = await vincularAoFornecedor(executar, item, atualizado, doFornecedor);
+        aplicados.push(atualizado);
 
         // Produtos repetidos (mesmo nome ou mesmo codigo de barras).
         // Duas coisas, as duas so quando o operador marcou na tela:
@@ -126,6 +137,11 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
   const fiscal = await fiscalQueFalta(executar, codigo, opcoes.camposFiscais);
   Object.assign(valores, fiscal.preencher);
 
+  // o que a NOTA sabe do produto vai para o cadastro: NCM, CEST, fornecedor...
+  // e produto marcado " - DESATIVADO" que recebeu mercadoria volta a ser ativo
+  const daNota = await dadosDaNota(executar, codigo, item, colunas, opcoes);
+  Object.assign(valores, daNota.gravar);
+
   const { partes, params } = montarAtribuicoes(colunas, valores);
   if (!partes.length) return { codigo, semAlteracao: true };
 
@@ -148,14 +164,19 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
   if (opcoes.usaEstoqueEmpresa) {
     antes[opcoes.campoEstoqueEmpresa] = paraTextoBR(anterior.estoque, 2);
   }
-  // desfazer devolve os campos fiscais ao vazio de antes
-  Object.assign(antes, fiscal.antes);
+  // desfazer devolve os campos fiscais ao vazio de antes, e o NCM/fornecedor/nome
+  // ao que eram
+  Object.assign(antes, fiscal.antes, daNota.antes);
+  // o barras preenchido agora volta a ficar vazio no desfazer
+  if (valores.BARRAS !== undefined) antes.BARRAS = anterior.barras || '';
 
   return {
     acao: 'atualizado',
     codigo,
-    descricao: anterior.descricao,
+    descricao: daNota.nomeFinal || anterior.descricao,
     fiscalPreenchido: fiscal.nomes,
+    atualizadoPelaNota: daNota.nomes,
+    reativado: daNota.reativado,
     antes,
     depois: { estoque: estoqueNovo, custo: custoNovo, venda: vendaNova },
     // e isto que diz se a etiqueta da prateleira precisa ser trocada
@@ -163,6 +184,125 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
     vendaDepois: vendaNova,
     precoMudou: Math.abs((anterior.vendaAtual || 0) - (vendaNova || 0)) >= 0.005,
   };
+}
+
+export const MARCA_DESATIVADO_REGEX = /\s*-\s*DESATIVADO\s*$/i;
+const soDigitos = (valor) => String(valor || '').replace(/\D/g, '');
+
+/**
+ * O que a nota traz sobre o produto e deve valer no cadastro.
+ *
+ *  - NCM e CEST: SEMPRE os da nota (e o fornecedor quem classifica; NCM errado
+ *    no cadastro faz a nota de venda ser recusada);
+ *  - fornecedor: o desta nota passa a ser o ultimo fornecedor do produto;
+ *  - unidade de compra: como este fornecedor vende (CX, FD, UN...);
+ *  - referencia: o codigo do fornecedor, se o produto ainda nao tinha nenhuma;
+ *  - produto que estava marcado " - DESATIVADO" (parado, ou repetido que foi
+ *    desligado) e recebeu mercadoria agora: tira a marca e volta a ser ativo.
+ *
+ * O NOME do produto NAO e trocado pelo da nota: e o nome que a loja usa no
+ * balcao, na etiqueta e no historico de venda. E o codigo de barras so e
+ * preenchido quando o produto nao tinha - a venda guarda o barras, e trocar
+ * perderia o historico de preco de cada cliente.
+ */
+async function dadosDaNota(executar, codigo, item, colunas, opcoes = {}) {
+  const vazio = { gravar: {}, antes: {}, nomes: [], reativado: false, nomeFinal: '' };
+  const quero = ['NCM', 'CEST', 'REFERENCIA', 'FORNECEDOR', 'NOMEFOR', 'UNCOMPRA', 'DESCRICAO', 'STATUS']
+    .filter((c) => colunas.has(c));
+  if (!quero.length) return vazio;
+
+  const linhas = await executar(
+    `SELECT ${quero.map((c) => campoTexto(c, c === 'DESCRICAO' ? 70 : 60)).join(', ')}
+       FROM PRODUTO WHERE TRIM(CODIGO) = ?`,
+    [codigo]
+  );
+  if (!linhas[0]) return vazio;
+  const atual = {};
+  for (const c of quero) atual[c] = lerTexto(linhas[0][c] ?? linhas[0][c.toLowerCase()]);
+
+  const tamanho = (coluna) => opcoes.tamanhos?.get(coluna) || 0;
+  const cabe = (coluna, valor) => (tamanho(coluna) ? String(valor).slice(0, tamanho(coluna)) : String(valor));
+  const gravar = {};
+  const antes = {};
+  const nomes = [];
+  const trocar = (coluna, valor, nome, paraBanco = (v) => v) => {
+    if (!quero.includes(coluna) || valor === undefined || valor === null) return;
+    const novo = cabe(coluna, valor);
+    if (novo === atual[coluna]) return;
+    gravar[coluna] = paraBanco(novo);
+    antes[coluna] = atual[coluna];
+    nomes.push(nome);
+  };
+
+  const ncm = soDigitos(item.ncm);
+  if (ncm.length === 8) trocar('NCM', ncm, 'NCM');
+  const cest = soDigitos(item.cest);
+  if (cest.length === 7) trocar('CEST', cest, 'CEST');
+
+  if (!atual.REFERENCIA && item.codigoFornecedor) {
+    trocar('REFERENCIA', String(item.codigoFornecedor).trim(), 'referência do fornecedor');
+  }
+  if (opcoes.doFornecedor?.codigo) {
+    trocar('FORNECEDOR', opcoes.doFornecedor.codigo, 'fornecedor');
+    if (opcoes.doFornecedor.nome) trocar('NOMEFOR', opcoes.doFornecedor.nome, 'nome do fornecedor', gravarTexto);
+  }
+  const unidadeDaNota = String(item.unidadeComercial || '').trim().toUpperCase();
+  if (unidadeDaNota) trocar('UNCOMPRA', unidadeDaNota, 'unidade de compra');
+
+  // volta a ser ativo: tira a marca do nome e o CANCELADO do status
+  let reativado = false;
+  let nomeFinal = '';
+  if (MARCA_DESATIVADO_REGEX.test(atual.DESCRICAO || '')) {
+    nomeFinal = atual.DESCRICAO.replace(MARCA_DESATIVADO_REGEX, '').trim();
+    gravar.DESCRICAO = gravarTexto(nomeFinal);
+    antes.DESCRICAO = atual.DESCRICAO;        // texto legivel: o desfazer converte
+    reativado = true;
+  }
+  if (String(atual.STATUS || '').trim().toUpperCase() === 'CANCELADO') {
+    gravar.STATUS = '';
+    antes.STATUS = atual.STATUS;
+    reativado = true;
+  }
+  if (reativado) nomes.push('reativado (tirou o DESATIVADO)');
+
+  return { gravar, antes, nomes, reativado, nomeFinal };
+}
+
+/**
+ * Ensina o Solus que "o codigo X deste fornecedor e o nosso produto Y"
+ * (tabela PRODUTOFORNE). Na proxima nota desse fornecedor o produto e achado
+ * sozinho, mesmo sem codigo de barras. Devolve o que foi feito, para desfazer.
+ */
+async function vincularAoFornecedor(executar, item, registro, doFornecedor) {
+  const codigoNoFornecedor = String(item.codigoFornecedor || '').trim().slice(0, 50);
+  if (!doFornecedor?.codigo || !codigoNoFornecedor || !registro?.codigo) return null;
+  const barras = String(item.produto?.barrasNoBanco || item.produto?.barras || item.codigoBarras || registro.codigo)
+    .trim().slice(0, 20);
+  const codfor = String(doFornecedor.codigo).trim().slice(0, 10);
+
+  try {
+    const existente = await executar(
+      'SELECT FIRST 1 BARRAS FROM PRODUTOFORNE WHERE TRIM(CODIGO) = ? AND TRIM(CODFOR) = ?',
+      [codigoNoFornecedor, codfor]
+    );
+    if (existente.length) {
+      const barrasAntes = String(existente[0].BARRAS || '').trim();
+      if (barrasAntes === barras) return null;
+      // o vinculo apontava para outro produto: a pessoa ligou a este na tela
+      await executar(
+        'UPDATE PRODUTOFORNE SET BARRAS = ? WHERE TRIM(CODIGO) = ? AND TRIM(CODFOR) = ?',
+        [barras, codigoNoFornecedor, codfor]
+      );
+      return { codigo: codigoNoFornecedor, codfor, barrasAntes };
+    }
+    await executar(
+      'INSERT INTO PRODUTOFORNE (CODIGO, CODFOR, DESCRICAO, BARRAS) VALUES (?, ?, ?, ?)',
+      [codigoNoFornecedor, codfor, gravarTexto(String(item.descricao || '').slice(0, 70)), barras]
+    );
+    return { codigo: codigoNoFornecedor, codfor, novo: true };
+  } catch {
+    return null;        // banco sem a tabela PRODUTOFORNE: segue sem o vinculo
+  }
 }
 
 /** Le os campos fiscais atuais do produto (na mesma transacao) e diz o que falta. */
@@ -270,7 +410,7 @@ async function desativarProduto(executar, colunas, produto) {
   };
 }
 
-async function criarProduto(executar, colunas, item, camposFiscais = []) {
+async function criarProduto(executar, colunas, item, camposFiscais = [], opcoes = {}) {
   // usa a MESMA transacao: consultar por fora trava esperando este commit
   const codigo = await proximoCodigoProduto(executar);
   const custo = Number(item.custoUnitario || 0);
@@ -304,6 +444,9 @@ async function criarProduto(executar, colunas, item, camposFiscais = []) {
     // CST 102, IBS/CBS 000, classificacao 000001, acessa valores S, baixa estoque S:
     // sem isso o produto novo nao sai em nota de venda
     ...padroesParaProdutoNovo(camposFiscais),
+    // quem vendeu: o fornecedor desta nota (quando ele esta cadastrado no Solus)
+    FORNECEDOR: opcoes.doFornecedor?.codigo ? String(opcoes.doFornecedor.codigo).slice(0, 5) : undefined,
+    NOMEFOR: opcoes.doFornecedor?.nome ? gravarTexto(String(opcoes.doFornecedor.nome).slice(0, 50)) : undefined,
     // STATUS fica vazio de proposito: no Solus, produto ativo tem STATUS vazio
     // e 'CANCELADO' e o que marca produto desativado.
     ULTIMACOMPRA: dataSolus(),
@@ -346,11 +489,27 @@ async function criarProduto(executar, colunas, item, camposFiscais = []) {
 }
 
 /** Desfaz uma aplicacao: devolve cada campo ao valor que estava antes. */
+async function desfazerVinculo(executar, vinculo) {
+  if (!vinculo?.codigo || !vinculo?.codfor) return;
+  try {
+    if (vinculo.novo) {
+      await executar('DELETE FROM PRODUTOFORNE WHERE TRIM(CODIGO) = ? AND TRIM(CODFOR) = ?',
+        [vinculo.codigo, vinculo.codfor]);
+    } else if (vinculo.barrasAntes !== undefined) {
+      await executar('UPDATE PRODUTOFORNE SET BARRAS = ? WHERE TRIM(CODIGO) = ? AND TRIM(CODFOR) = ?',
+        [vinculo.barrasAntes, vinculo.codigo, vinculo.codfor]);
+    }
+  } catch { /* banco sem a tabela: nada a desfazer */ }
+}
+
 export async function desfazer(registros) {
   const colunas = (await estruturaDe('PRODUTO')).nomes;
   return emTransacao(async (executar) => {
     const desfeitos = [];
     for (const registro of registros) {
+      // o vinculo 'codigo do fornecedor -> nosso produto' criado pela nota
+      await desfazerVinculo(executar, registro.vinculoCriado);
+
       if (registro.acao === 'criado') {
         await executar('DELETE FROM PRODUTO WHERE TRIM(CODIGO) = ?', [registro.codigo]);
         desfeitos.push({ codigo: registro.codigo, resultado: 'produto novo removido' });
@@ -361,7 +520,9 @@ export async function desfazer(registros) {
       // a descricao foi guardada como texto legivel; para voltar ao banco ela
       // precisa virar bytes de novo, senao o acento volta quebrado
       const antes = { ...registro.antes };
-      if (antes.DESCRICAO !== undefined) antes.DESCRICAO = gravarTexto(antes.DESCRICAO);
+      for (const coluna of ['DESCRICAO', 'NOMEFOR']) {
+        if (antes[coluna] !== undefined) antes[coluna] = gravarTexto(antes[coluna]);
+      }
 
       const { partes, params } = montarAtribuicoes(colunas, antes);
       if (!partes.length) continue;

@@ -1169,10 +1169,82 @@ async function carregarConfig() {
     if (config.ia.temChave) carregarModelos(config.ia.modelo);
 
     desenharLogo();
+    contarParados();
   } catch (erro) {
     console.error(erro);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Produtos parados ha mais de 2 anos (so gerente)
+// ---------------------------------------------------------------------------
+
+let paradosCarregados = null;
+
+async function contarParados() {
+  const cartao = $('#cartao-parados');
+  if (!cartao) return;
+  // so gerente marca produto: para os outros o cartao nem aparece
+  cartao.classList.toggle('escondido', !sessao.operador?.gerente);
+  if (!sessao.operador?.gerente) return;
+
+  $('#resumo-parados').textContent = 'Contando...';
+  $('#lista-parados').innerHTML = '';
+  try {
+    paradosCarregados = await api('/api/parados?limite=300');
+    const { total, comEstoque } = paradosCarregados;
+    $('#resumo-parados').innerHTML = total
+      ? `<strong>${total.toLocaleString('pt-BR')} produtos</strong> parados há mais de 2 anos`
+        + (comEstoque ? ` — <strong>${comEstoque}</strong> ainda com estoque no sistema.` : '.')
+      : 'Nenhum produto parado sem a marca. Tudo em dia.';
+    $('#btn-marcar-parados').disabled = !total;
+  } catch (erro) {
+    $('#resumo-parados').textContent = erro.message;
+  }
+}
+
+$('#btn-ver-parados')?.addEventListener('click', () => {
+  const area = $('#lista-parados');
+  if (!paradosCarregados?.produtos?.length) { area.innerHTML = ''; return; }
+  const linhas = paradosCarregados.produtos.map((p) => `
+    <tr>
+      <td>${escapar(p.codigo)}</td>
+      <td>${escapar(p.descricao)}</td>
+      <td style="text-align:right">${String(p.estoque).replace('.', ',')}</td>
+      <td>${p.ultimaAtividade ? new Date(p.ultimaAtividade).toLocaleDateString('pt-BR') : 'sem registro'}</td>
+    </tr>`).join('');
+  const mais = paradosCarregados.total - paradosCarregados.produtos.length;
+  area.innerHTML = `
+    <div class="tabela-rolagem" style="max-height:360px;overflow:auto">
+      <table>
+        <thead><tr><th>Cód.</th><th>Produto</th><th>Estoque</th><th>Último movimento</th></tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+    </div>
+    ${mais > 0 ? `<p class="ajuda">...e mais ${mais.toLocaleString('pt-BR')} produtos (os mais antigos aparecem primeiro).</p>` : ''}`;
+});
+
+$('#btn-marcar-parados')?.addEventListener('click', async (evento) => {
+  const total = paradosCarregados?.total || 0;
+  if (!total) return;
+  const certeza = confirm(
+    `Escrever " - DESATIVADO" no nome de ${total.toLocaleString('pt-BR')} produtos parados há mais de 2 anos?\n\n`
+    + 'O produto continua no Solus (não é apagado nem bloqueado). Quando chegar nota dele, a marca sai sozinha.\n'
+    + 'Dá para desfazer tudo pelo Histórico.'
+  );
+  if (!certeza) return;
+
+  const botao = evento.currentTarget;
+  botao.disabled = true;
+  try {
+    const resultado = await api('/api/parados/marcar', { method: 'POST', body: JSON.stringify({}) });
+    avisar(`${resultado.marcados.toLocaleString('pt-BR')} produtos marcados como DESATIVADO.`, 'ok');
+    contarParados();
+  } catch (erro) {
+    avisar(erro.message, 'erro');
+    botao.disabled = false;
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Logo da loja (sai no PDF do orcamento)
