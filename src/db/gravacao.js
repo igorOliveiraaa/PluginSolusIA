@@ -54,13 +54,54 @@ export async function aplicarNota({ itens, atualizarEstoque = true, fornecedor =
   return emTransacao(async (executar) => {
     const aplicados = [];
 
+    // A LIMPA DO CADASTRO precisa de duas travas aqui dentro, porque a tela nao
+    // e a unica porta (o chat e a API tambem chamam):
+    //   1. cadastro que esta RECEBENDO mercadoria nesta nota nunca e desativado
+    //      (seria atualizar o estoque e cancelar o produto logo depois);
+    //   2. o mesmo cadastro aparece como parecido em varios itens - desativa uma
+    //      vez so, senao vira registro repetido no historico.
+    const recebendoNestaNota = new Set(
+      itens.filter((i) => i.acao !== 'ignorar' && i.produto?.codigo)
+        .map((i) => String(i.produto.codigo))
+    );
+    const jaDesativados = new Set();
+    const podeDesativar = (codigo) => {
+      const chave = String(codigo || '');
+      if (!chave || recebendoNestaNota.has(chave) || jaDesativados.has(chave)) return false;
+      jaDesativados.add(chave);
+      return true;
+    };
+
     for (const item of itens) {
-      if (item.acao === 'ignorar') continue;
+      // "nao entrar" tambem vira registro: o historico precisa dizer POR QUE um
+      // item da nota nao virou produto (foi a resposta mais pedida na loja).
+      if (item.acao === 'ignorar') {
+        aplicados.push({
+          acao: 'ignorado',
+          codigo: item.produto?.codigo || '',
+          descricao: item.produto?.descricao || String(item.descricao || ''),
+          descricaoNaNota: String(item.descricao || ''),
+          motivo: String(item.motivoIgnorar || 'marcado como "nao entrar" na conferencia'),
+          quantidade: Number(item.quantidadeUnidades) || 0,
+          antes: null,
+          depois: null,
+        });
+        continue;
+      }
 
       if (item.acao === 'criar') {
         const criado = await criarProduto(executar, colunas, item, camposFiscais, { doFornecedor, tamanhos });
         criado.vinculoCriado = await vincularAoFornecedor(executar, item, criado, doFornecedor);
         aplicados.push(criado);
+
+        // cadastrou o novo E mandou desativar os repetidos velhos: e o caso do
+        // "rodo de madeira" com quatro cadastros antigos parados na lista
+        const velhos = new Set(item.desativarIrmaos || []);
+        for (const irmao of item.irmaos || []) {
+          if (velhos.has(irmao.codigo) && podeDesativar(irmao.codigo)) {
+            aplicados.push(await desativarProduto(executar, colunas, irmao));
+          }
+        }
       } else {
         const atualizado = await atualizarProduto(executar, colunas, item, {
           atualizarEstoque,
@@ -83,7 +124,9 @@ export async function aplicarNota({ itens, atualizarEstoque = true, fornecedor =
 
         for (const irmao of irmaos) {
           if (paraDesativar.has(irmao.codigo)) {
-            aplicados.push(await desativarProduto(executar, colunas, irmao));
+            if (podeDesativar(irmao.codigo)) {
+              aplicados.push(await desativarProduto(executar, colunas, irmao));
+            }
           } else if (item.igualarIrmaos) {
             aplicados.push(await igualarPrecoDoIrmao(executar, colunas, irmao, item.precoVenda));
           }
@@ -178,7 +221,13 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
     atualizadoPelaNota: daNota.nomes,
     reativado: daNota.reativado,
     antes,
+    // os mesmos numeros do 'antes', em formato legivel: e o que a tela do
+    // historico mostra item a item (o 'antes' acima e a linguagem do banco)
+    antesValores: { estoque: anterior.estoque, custo: anterior.custoAtual, venda: anterior.vendaAtual },
     depois: { estoque: estoqueNovo, custo: custoNovo, venda: vendaNova },
+    quantidade: Number(item.quantidadeUnidades) || 0,
+    unidadeDaNota: item.unidadeComercial || item.unidadeOriginal || '',
+    nomeAntes: anterior.descricao,
     // e isto que diz se a etiqueta da prateleira precisa ser trocada
     vendaAntes: anterior.vendaAtual,
     vendaDepois: vendaNova,
@@ -362,6 +411,7 @@ async function igualarPrecoDoIrmao(executar, colunas, irmao, precoVenda) {
       PV: paraTextoBR(irmao.vendaAtual),
       MARGEM: paraTextoBR(irmao.margemAtual),
     },
+    antesValores: { estoque: irmao.estoque, custo: irmao.custoAtual, venda: irmao.vendaAtual },
     depois: { venda, estoque: irmao.estoque, custo: irmao.custoAtual },
   };
 }
@@ -406,6 +456,8 @@ async function desativarProduto(executar, colunas, produto) {
       DESCRICAO: produto.descricao,          // volta ao nome original se desfizer
       STATUS: produto.status || '',
     },
+    nomeAntes: produto.descricao,
+    antesValores: { estoque: produto.estoque, custo: produto.custoAtual, venda: produto.vendaAtual },
     depois: { estoque: produto.estoque, custo: produto.custoAtual, venda: produto.vendaAtual },
   };
 }
@@ -481,6 +533,9 @@ async function criarProduto(executar, colunas, item, camposFiscais = [], opcoes 
     descricao: String(item.descricao || '').slice(0, 70),
     fiscalPreenchido: camposFiscais.map((c) => c.nome),
     antes: null,
+    antesValores: null,
+    quantidade,
+    unidadeDaNota: item.unidadeComercial || item.unidadeOriginal || '',
     depois: { estoque: quantidade, custo, venda },
     vendaAntes: null,
     vendaDepois: venda,

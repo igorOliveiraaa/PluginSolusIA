@@ -181,6 +181,49 @@ export async function buscarPorCodigoDoFornecedor(codigoNoFornecedor, codigoForn
  * de proposito: assim nao precisamos mandar texto com acento como parametro, que e
  * onde o charset antigo do banco quebraria a comparacao.
  */
+/**
+ * Cadastros PARECIDOS: o mesmo produto cadastrado mais de uma vez com o nome
+ * escrito de outro jeito ("RODO DE MADEIRA 40CM" x "RODO MADEIRA 40 CM").
+ *
+ * O `buscarIrmaos` só achava nome IDENTICO ou mesmo codigo de barras - e por
+ * isso, na maioria das notas, os repetidos nao apareciam para a pessoa escolher
+ * qual vincular e quais desativar. Aqui a procura passa pelo indice do catalogo,
+ * que ignora acento, cedilha e erro de digitacao.
+ *
+ * `texto` e o nome que veio na nota (ou o do proprio cadastro).
+ * `excluir` e o codigo do produto que ja esta vinculado ao item.
+ */
+export async function buscarParecidos(texto, { excluir = '', limite = 6 } = {}) {
+  const procurado = String(texto || '').trim();
+  if (procurado.length < 3) return [];
+
+  const fora = new Set([String(excluir || '').trim()].filter(Boolean));
+  try {
+    // inclui os parados e os cancelados de proposito: e justamente o repetido
+    // velho que precisa aparecer para ser desativado
+    const achados = await procurarNoCatalogo(procurado, { limite: limite + 4 });
+    const bons = achados.filter((a) => !fora.has(a.codigo) && a.cobertura >= 0.7).slice(0, limite);
+    if (!bons.length) return [];
+
+    const produtos = await buscarVariosPorCodigo(bons.map((a) => a.codigo));
+    const porCodigo = new Map(produtos.map((p) => [p.codigo, p]));
+
+    return bons.map((achado) => {
+      const produto = porCodigo.get(achado.codigo);
+      if (!produto) return null;
+      const igual = normalizarTexto(produto.descricao) === normalizarTexto(procurado);
+      return {
+        ...produto,
+        parecenca: achado.cobertura,
+        motivo: igual ? 'mesmo nome' : `nome parecido (${Math.round(achado.cobertura * 100)}%)`,
+        parado: achado.parado,
+      };
+    }).filter(Boolean);
+  } catch {
+    return [];      // indice fora do ar: segue sem a lista de parecidos
+  }
+}
+
 export async function buscarIrmaos(codigoProduto) {
   const cod = String(codigoProduto || '').trim();
   if (!cod) return [];

@@ -19,6 +19,7 @@ import { pastaDaLoja } from './config.js';
 import {
   situacaoDosPedidos, vendasParaEmpresaSemNota, orcamentosEmAberto,
 } from './db/vendas.js';
+import { explicarSefaz } from './leitura/sefaz-em-portugues.js';
 
 // cada loja acompanha os seus orcamentos
 const arquivoDaLoja = () => path.join(pastaDaLoja(), 'acompanhamento.json');
@@ -290,6 +291,24 @@ export async function listarTarefas() {
   const visiveis = tarefas.filter((t) => !estaDispensada(dados, t.id));
   const ordem = { alta: 0, media: 1, baixa: 2 };
   visiveis.sort((a, b) => ordem[a.prioridade] - ordem[b.prioridade]);
+
+  // a resposta da Sefaz em portugues de gente ("Rejeicao 610: total da NF
+  // difere do somatorio" nao diz nada para quem esta no balcao). Quase sempre
+  // sai da tabela ou da memoria, sem gastar IA; e se falhar, fica o texto da
+  // Sefaz do mesmo jeito.
+  const daSefaz = visiveis.filter((t) => t.tipo === 'nota-rejeitada' && t.detalhe);
+  if (daSefaz.length) {
+    try {
+      const explicacoes = await explicarSefaz(daSefaz.map((t) => t.detalhe));
+      daSefaz.forEach((t, i) => {
+        if (!explicacoes[i] || explicacoes[i] === t.detalhe) return;
+        t.mensagemDaSefaz = t.detalhe;       // o original continua a um clique
+        t.detalhe = explicacoes[i];
+      });
+    } catch (erro) {
+      console.error('[tarefas] sefaz', erro.message);
+    }
+  }
 
   return {
     tarefas: visiveis,

@@ -23,9 +23,16 @@ import { VENDA_VALIDA } from './venda-valida.js';
 const TEMPO_DO_INDICE = 10 * 60 * 1000;   // 10 minutos
 const DIAS_DE_VENDA = 180;                // "o que sai hoje" = ultimos 6 meses
 const DIA = 24 * 3600 * 1000;
-// produto sem venda, sem entrada e sem mudanca de preco ha mais que isso nao
-// e SUGERIDO no orcamento (so aparece se a pessoa procurar por ele)
-export const DIAS_PARA_PARADO = 730;
+// Produto sem venda, sem entrada e sem mudanca de preco ha mais que isso e
+// PARADO: nao e sugerido no orcamento (so aparece se a pessoa procurar) e entra
+// na lista de marcar " - DESATIVADO". A loja escolhe o prazo em Ajustes.
+const MESES_PARA_PARADO = 12;
+
+export function diasParaParado() {
+  const meses = Number(carregarConfig().regras?.mesesParaParado);
+  const usar = Number.isFinite(meses) && meses >= 1 && meses <= 120 ? meses : MESES_PARA_PARADO;
+  return Math.round(usar * 30.44);
+}
 
 const indices = new Map();   // lojaId -> indice pronto
 
@@ -93,6 +100,18 @@ export function palavrasCanonicas(texto) {
 }
 
 export const textoCanonico = (texto) => palavrasCanonicas(texto).join(' ');
+
+/**
+ * "AGUA SANITARIA 1L Q.BOA": quem pede escreve "qboa". O ponto vira espaço nas
+ * palavras canônicas, sobra "Q" + "BOA", e o pedido nunca achava o produto (no
+ * teste, a IA acabou escolhendo QUEROSENE 1L). Aqui sai a forma JUNTA ("QBOA"),
+ * que o índice guarda A MAIS - trocar estragaria "F.DUPLA", que precisa continuar
+ * achando quem pede "folha dupla".
+ */
+export function palavrasJuntas(texto) {
+  const limpo = String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+  return [...limpo.matchAll(/\b([A-Z])\.([A-Z]{2,})\b/g)].map((m) => m[1] + m[2]);
+}
 
 const ehForte = (palavra) => palavra.length >= 2 && !FRACAS.has(palavra);
 
@@ -164,12 +183,14 @@ async function carregarProdutos() {
 
   return linhas.map((linha) => {
     const descricao = lerTexto(linha.DESCRICAO);
-    const palavras = palavrasCanonicas(descricao);
+    const separadas = palavrasCanonicas(descricao);
     return {
       codigo: String(linha.CODIGO || '').trim(),
       descricao,
-      palavras,
-      fortes: palavras.filter(ehForte),
+      // as juntas vão NO FIM e só aqui (não nas "fortes"): servem para casar o
+      // pedido, sem mexer na primeira palavra nem na penalidade de nome comprido
+      palavras: [...separadas, ...palavrasJuntas(descricao)],
+      fortes: separadas.filter(ehForte),
       barras: String(linha.BARRAS || '').trim(),
       codBarras: String(linha.CODBARRAS || '').trim(),
       referencia: String(linha.REFERENCIA || '').trim(),
@@ -313,7 +334,7 @@ async function montarIndice() {
   // Produto sem data nenhuma pode ser velho (anterior as tabelas de historico)
   // ou recem-cadastrado no Solus e ainda sem venda. O codigo e sequencial, entao
   // quem tem codigo MAIOR que o ultimo produto parado com data e novo: fica.
-  const limiteParado = referencia - DIAS_PARA_PARADO * DIA;
+  const limiteParado = referencia - diasParaParado() * DIA;
   const numero = (codigo) => (/^\d+$/.test(codigo) ? Number(codigo) : 0);
   let maiorCodigoParado = 0;
   for (const produto of produtos) {
@@ -388,7 +409,7 @@ export async function procurarNoCatalogo(texto, { limite = 12, preferir = [], es
   for (const produto of indice.produtos) {
     const doProduto = produto.palavras;
     if (!doProduto.length) continue;
-    // na SUGESTAO automatica, produto morto ha 2 anos nem entra na disputa
+    // na SUGESTAO automatica, produto morto ha mais que o prazo dos Ajustes nem entra
     // (na pesquisa que a pessoa faz na mao ele aparece, marcado como parado)
     if (esconderParados && produto.parado) continue;
 
@@ -495,6 +516,27 @@ export function motivoDaSugestao(achado, referencia = 0) {
  * Converte as chaves que aparecem na venda (ITEMPEDIDO.PRODUTO) nos codigos de
  * produto de hoje. E o que liga "o que este cliente ja comprou" ao catalogo.
  */
+/**
+ * Chave da venda -> codigo do produto, SEM perder a ligacao entre as duas.
+ *
+ * `codigosDasChaves` devolve a lista limpa (sem repetido e sem o que nao achou),
+ * o que serve para "quais produtos ele comprou" mas NAO para andar em paralelo
+ * com a lista de entrada: a posicao 3 da resposta pode ser a chave 5. Isso ja
+ * casou o ritmo de compra de um produto com o codigo de outro (ver
+ * `logica/sugestoes.js`). Quando a ligacao importa, use este Map.
+ */
+export async function mapaDeChaves(chaves) {
+  const indice = await indiceDoCatalogo();
+  const mapa = new Map();
+  for (const bruta of chaves || []) {
+    const chave = String(bruta || '').trim();
+    if (!chave || mapa.has(chave)) continue;
+    const codigo = indice.porChave?.get(chave) || indice.porChave?.get(semZeros(chave));
+    if (codigo) mapa.set(chave, codigo);
+  }
+  return mapa;
+}
+
 export async function codigosDasChaves(chaves) {
   const indice = await indiceDoCatalogo();
   const codigos = [];

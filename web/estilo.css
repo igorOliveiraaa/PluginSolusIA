@@ -591,6 +591,51 @@ main { padding: 18px 16px; max-width: 920px; margin: 0 auto; }
   line-height: 1.4;
 }
 
+/* "esse cliente costuma levar tambem" */
+.sugestoes-cartao { border-left: 3px solid var(--sucesso); }
+.sugestao-linha {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  border-top: 1px solid var(--vidro-borda);
+}
+.sugestao-linha:first-of-type { border-top: 0; }
+.sugestao-linha.atrasada strong { color: var(--aviso); }
+@media (max-width: 560px) {
+  .sugestao-linha { grid-template-columns: 1fr auto; }
+  .sugestao-linha .botao { grid-column: 1 / -1; }
+}
+
+/* ja resolvido em outro item da nota: fica so como informacao */
+.irmao-linha.resolvido { opacity: .62; }
+
+/* a limpa do cadastro: marcar de uma vez os repetidos de verdade */
+.irmaos-atalho {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 10px 0 2px;
+}
+
+/* a IA disse que este cadastro e O MESMO produto: e o candidato certo */
+.irmao-linha.mesmo-produto {
+  background: var(--sucesso-fundo);
+  border-radius: 10px;
+  padding: 7px 10px;
+  margin: 2px -10px;
+}
+
+.item-aviso.sugestao-ia {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.item-aviso.sugestao-ia .botao { margin-left: auto; }
+
 .irmaos label { display: flex; align-items: flex-start; gap: 9px; margin-top: 10px; cursor: pointer; }
 .irmaos label input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--principal); flex: 0 0 auto; }
 .irmaos em { color: var(--texto-fraco); font-style: normal; }
@@ -632,8 +677,53 @@ main { padding: 18px 16px; max-width: 920px; margin: 0 auto; }
 }
 
 .historico-item.desfeita { opacity: .55; }
+.historico-item.falhou { border-color: rgba(212, 24, 61, .35); }
 .historico-topo { display: flex; justify-content: space-between; gap: 10px; }
 .historico-data { font-size: 13px; color: var(--texto-fraco); }
+
+/* o que foi feito item a item (abre no clique) */
+.historico-acoes { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
+.historico-acoes .botao { flex: 1; min-width: 150px; }
+
+.historico-detalhe {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--vidro-borda);
+  animation: entrar .3s var(--suave) backwards;
+}
+
+.detalhe-linha {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+  background: rgba(127, 127, 127, .07);
+  border-left: 3px solid var(--vidro-borda);
+}
+.detalhe-linha.criado { border-left-color: var(--sucesso); }
+.detalhe-linha.desativado,
+.detalhe-linha.ignorado { border-left-color: var(--aviso); }
+.detalhe-linha.nao-gravado { border-left-color: var(--perigo); }
+
+.detalhe-cabeca {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+.detalhe-cabeca .historico-data { margin-left: 6px; }
+
+.detalhe-numeros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 6px;
+  font-size: 14px;
+}
+.de-para { color: var(--texto-fraco); }
+.de-para em { font-style: normal; text-decoration: line-through; opacity: .7; }
+.de-para strong { color: var(--texto); }
+.seta.sobe { color: var(--perigo); }
+.seta.desce { color: var(--sucesso); }
 
 /* ---------------- modal ---------------- */
 
@@ -1367,18 +1457,19 @@ textarea:focus-visible, select:focus-visible, summary:focus-visible {
    tela de login, que cobre a página inteira. Antes ele ficava dentro do <main>
    e, no celular, ninguém via: o login estava por cima. E é justamente no login,
    no primeiro acesso de um aparelho novo, que a pessoa quer instalar. */
+/* A faixa ocupa o PRÓPRIO espaço, nunca fica por cima de nada.
+   Fixa no rodapé ela tapava o "Gravar no Solus" da conferência e a caixa de
+   pergunta do chat - achado no teste com navegador de verdade. Agora ela mora
+   no topo da tela inicial (e dentro da caixa de login, ver instalar.js) e some
+   das telas de trabalho. */
 .faixa-instalar {
-  position: fixed;
-  left: 12px;
-  right: 12px;
-  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  z-index: 120;
+  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   max-width: 900px;
-  margin: 0 auto;
+  margin: 0 auto 16px;
   background: var(--vidro-forte);
   backdrop-filter: blur(22px) saturate(180%);
   -webkit-backdrop-filter: blur(22px) saturate(180%);
@@ -1389,6 +1480,13 @@ textarea:focus-visible, select:focus-visible, summary:focus-visible {
   box-shadow: var(--sombra-alta);
   animation: subir .4s var(--suave);
 }
+
+/* nas telas de trabalho (nota, orçamento, conferência...) a faixa não aparece:
+   o convite fica na tela inicial e em Ajustes */
+body[data-tela]:not([data-tela="assistente"]) main > .faixa-instalar { display: none !important; }
+
+/* dentro da caixa de login: embaixo do botão Entrar, no fluxo da caixa */
+.caixa-login .faixa-instalar { margin: 18px 0 0; max-width: none; }
 
 .instalar-texto { flex: 1 1 240px; font-size: 14px; line-height: 1.5; }
 .instalar-texto code {

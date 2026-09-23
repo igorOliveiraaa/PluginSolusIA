@@ -140,7 +140,8 @@ export async function carregarMarca() {
 
   try {
     const resposta = await fetch('/api/logo', { headers: { 'x-sessao': sessao.token } });
-    if (!resposta.ok) throw new Error('sem logo');
+    // 204 = a loja ainda não tem logo (não é erro); o resto que não for ok, também não mostra
+    if (!resposta.ok || resposta.status === 204) throw new Error('sem logo');
     const blob = await resposta.blob();
     if (urlAtual) URL.revokeObjectURL(urlAtual);
     urlAtual = URL.createObjectURL(blob);

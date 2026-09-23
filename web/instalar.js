@@ -42,6 +42,28 @@ function esconder() {
   faixa.innerHTML = '';
 }
 
+/**
+ * Onde a faixa mora. Ela ocupa o próprio espaço (não flutua por cima de nada):
+ *   - com a tela de login aberta: dentro da caixa de login, embaixo do Entrar
+ *     (o primeiro acesso é quando mais se quer instalar);
+ *   - depois de entrar: no topo do conteúdo (o CSS esconde fora da tela inicial).
+ */
+function colocarFaixa() {
+  if (!faixa) return;
+  const login = $('#tela-login');
+  const naLogin = login && !login.classList.contains('escondido');
+  const destino = naLogin ? login.querySelector('.caixa-login') : $('main');
+  if (!destino || faixa.parentElement === destino) return;
+  if (naLogin) destino.appendChild(faixa);
+  else destino.prepend(faixa);
+}
+
+const telaLogin = $('#tela-login');
+if (telaLogin) {
+  new MutationObserver(colocarFaixa).observe(telaLogin, { attributes: true, attributeFilter: ['class'] });
+}
+colocarFaixa();
+
 // o endereco com NOME (plugin-solus.local), que o servidor informa. Com ele o app
 // instalado nao quebra quando o roteador troca o IP do PC servidor.
 let enderecos = null;
@@ -72,6 +94,7 @@ function mostrar(html, ligar) {
   fechar.addEventListener('click', dispensar);
   faixa.querySelector('.instalar-acoes').appendChild(fechar);
 
+  colocarFaixa();
   faixa.classList.remove('escondido');
 }
 

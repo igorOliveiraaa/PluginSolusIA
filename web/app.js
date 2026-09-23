@@ -9,6 +9,7 @@ import { abrirConfiguracaoDeLojas } from './login.js';
 import { mostrarProgressoNoCartao } from './progresso.js';
 import { ligarColar } from './colar.js';
 import { fecharModal } from './efeitos.js';
+import { cartaoDoHistorico, corpoDoDetalhe, prazoEmPalavras } from './historico-visual.js';
 
 const estado = {
   arquivos: [],
@@ -115,11 +116,15 @@ $('#btn-ler').addEventListener('click', async () => {
       'Procurando cada produto no Solus',
       'Calculando o custo com frete e impostos',
       ...(temObservacao ? ['Aplicando a sua observação'] : []),
+      'Conferindo os cadastros parecidos com a IA',
       'Montando a conferência',
     ],
     // XML sai em 1 ou 2 segundos; leitura por IA leva bem mais
-    segundosPorEtapa: temXml ? 1.2 : 5,
-    dicas: temXml ? [] : [
+    segundosPorEtapa: temXml ? 1.8 : 5,
+    dicas: temXml ? [
+      'A IA confere se o cadastro parecido é o mesmo produto ou outro tamanho.',
+      'Nada é gravado agora — você confere tudo antes.',
+    ] : [
       'Foto nítida, de frente e com boa luz é lida mais rápido.',
       'Com o XML a leitura é exata e não gasta IA.',
       'Nada é gravado agora — você confere tudo antes.',
@@ -141,6 +146,8 @@ $('#btn-ler').addEventListener('click', async () => {
       igualarIrmaos: false,
       desativarIrmaos: [],
       origemPreco: item.analise.recomendacao,
+      // produto novo: o nome que vai para o cadastro (a IA já arrumou, dá para editar)
+      descricao: item.descricao,
     }));
 
     desenharConferencia(resultado.jaAplicada);
@@ -197,6 +204,22 @@ function desenharConferencia(jaAplicada) {
 
   const ajustes = resumoDaObservacao(nota);
 
+  // a IA conferiu os cadastros parecidos? quando não deu, a pessoa precisa saber
+  // que a comparação foi só por texto (é aí que mora o engano de tamanho)
+  const ia = nota.conferenciaIA;
+  const conferenciaIA = ia?.usou
+    ? `<p class="ajuda" style="margin:10px 0 0">
+         A IA conferiu os cadastros parecidos de ${ia.itens}
+         ${ia.itens === 1 ? 'item' : 'itens'} — cada um diz se é o mesmo produto.
+       </p>`
+    : ia?.falhou
+      ? `<div class="item-aviso">
+           <strong>A IA não conseguiu conferir os cadastros parecidos</strong>
+           (${escapar(ia.motivo || 'erro')}). A comparação abaixo é só por texto:
+           confira com atenção tamanho e marca antes de gravar.
+         </div>`
+      : '';
+
   $('#resumo-nota').innerHTML = `
     <div class="resumo-grade">
       <div class="resumo-item">
@@ -216,7 +239,7 @@ function desenharConferencia(jaAplicada) {
         <div class="resumo-rotulo">precisam de atenção</div>
       </div>
     </div>
-    ${conferencia}${ajustes}`;
+    ${conferencia}${ajustes}${conferenciaIA}`;
 
   desenharItens();
 }
@@ -308,6 +331,24 @@ function desenharItens() {
   // anima so na primeira montagem: redesenhar a cada ajuste piscaria a tela toda
   animarSeForAPrimeiraVez(lista);
   ligarEventosDosItens();
+}
+
+/**
+ * O que a IA achou de um cadastro parecido, em uma etiqueta.
+ * Sem resposta da IA (sem chave, sem crédito, ou ela falhou) não aparece nada —
+ * a tela continua igual à de antes.
+ */
+function etiquetaDaIA(relacao, motivo) {
+  if (!relacao) return '';
+  const como = {
+    mesmo: { classe: 'ok', texto: 'IA: é o mesmo produto' },
+    variacao: { classe: 'aviso', texto: 'IA: parecido, mas outro' },
+    outro: { classe: 'erro', texto: 'IA: não tem relação' },
+  }[relacao];
+  if (!como) return '';
+  const explicacao = motivo ? ` — ${motivo}` : '';
+  return `<span class="etiqueta ${como.classe}" title="${escapar(motivo || '')}">${
+    escapar(como.texto + explicacao)}</span>`;
 }
 
 function desenharItem(item, indice) {
@@ -406,55 +447,117 @@ function desenharItem(item, indice) {
       </div>
     </div>`;
 
-  // produtos repetidos (mesmo nome ou mesmo código de barras)
+  // Cadastros repetidos ou PARECIDOS: a pessoa escolhe UM para receber a
+  // mercadoria e marca quais desativar, um por um. Aparece também quando o item
+  // vai ser cadastrado novo - o repetido velho costuma estar justamente aí.
+  // Quando a IA conferiu, cada linha diz se é O MESMO produto ou outro tamanho.
   const desativar = decisao.desativarIrmaos || [];
-  const blocoIrmaos = item.irmaos?.length ? `
+  const parecidos = item.irmaos || [];
+
+  // A LIMPA DO CADASTRO: o mesmo cadastro velho costuma aparecer como parecido
+  // em vários itens da nota. Marcar duas vezes não adianta e confunde, e pior:
+  // dava para marcar "desativar" num item um cadastro que está RECEBENDO a
+  // mercadoria em outro. Então aqui cada código sabe onde já foi resolvido.
+  const marcadoEmOutroItem = new Map();      // código -> nº do item
+  const recebendoMercadoria = new Map();     // código -> nº do item
+  estado.decisoes.forEach((outra, i) => {
+    if (i !== indice) {
+      for (const codigo of outra?.desativarIrmaos || []) marcadoEmOutroItem.set(String(codigo), i + 1);
+    }
+    const daOutra = estado.conferencia.itens[i];
+    if (outra?.acao !== 'ignorar' && daOutra?.produto?.codigo) {
+      recebendoMercadoria.set(String(daOutra.produto.codigo), i + 1);
+    }
+  });
+  const blocoIrmaos = parecidos.length ? `
     <div class="irmaos">
       <div class="irmaos-titulo">
-        ⚠ Encontrei ${item.irmaos.length + 1} cadastros do mesmo produto
+        ${icone('aviso', 17)} Achei ${parecidos.length} cadastro${parecidos.length === 1 ? '' : 's'} parecido${parecidos.length === 1 ? '' : 's'}${novo ? '' : ' além do vinculado'}
       </div>
-      <div class="irmao-linha">
-        <span><strong>cód. ${escapar(item.produto.codigo)}</strong>
-          <span class="etiqueta ok">principal</span><br>
-          barras ${escapar(item.produto.barras || '-')}</span>
+      <p class="ajuda" style="margin:2px 0 10px">
+        Escolha qual recebe a mercadoria desta nota e marque os que não são mais usados.
+      </p>
+
+      ${novo ? '' : `
+      <div class="irmao-linha vinculado">
+        <span><strong>${escapar(item.produto.descricao)}</strong>
+          <span class="etiqueta ok">vinculado — recebe o estoque</span>
+          ${etiquetaDaIA(item.relacaoDoVinculoIA, item.motivoDoVinculoIA)}<br>
+          cód. ${escapar(item.produto.codigo)} · barras ${escapar(item.produto.barras || '-')}</span>
         <span style="text-align:right">${dinheiro(item.produto.vendaAtual)}<br>
           <em>estoque ${item.produto.estoque}</em></span>
-      </div>
-      ${item.irmaos.map((irmao) => `
-        <div class="irmao-linha">
-          <span>cód. ${escapar(irmao.codigo)}
-            <em>(${escapar(irmao.motivo || 'repetido')})</em><br>
-            barras ${escapar(irmao.barras || '-')}
-            ${irmao.estoque < 0
-              ? '<span class="etiqueta erro">estoque negativo</span>' : ''}</span>
+      </div>`}
+
+      ${parecidos.map((irmao) => {
+        const noOutro = marcadoEmOutroItem.get(String(irmao.codigo));
+        const recebendo = recebendoMercadoria.get(String(irmao.codigo));
+        // já resolvido em outro item da nota: aqui é só informação
+        const travado = irmao.cancelado || Boolean(noOutro) || Boolean(recebendo);
+        return `
+        <div class="irmao-linha ${irmao.relacaoIA === 'mesmo' ? 'mesmo-produto' : ''} ${travado ? 'resolvido' : ''}">
+          <span><strong>${escapar(irmao.descricao)}</strong>
+            ${etiquetaDaIA(irmao.relacaoIA, irmao.motivoIA)}
+            <span class="etiqueta">${escapar(irmao.motivo || 'parecido')}</span>
+            ${irmao.cancelado ? '<span class="etiqueta erro">já desativado no Solus</span>' : ''}
+            ${noOutro ? `<span class="etiqueta aviso">já marcado para desativar no item ${noOutro}</span>` : ''}
+            ${recebendo ? `<span class="etiqueta ok">recebe a mercadoria no item ${recebendo}</span>` : ''}
+            ${irmao.parado && !irmao.cancelado ? '<span class="etiqueta aviso">parado</span>' : ''}
+            ${irmao.estoque < 0 ? '<span class="etiqueta erro">estoque negativo</span>' : ''}<br>
+            cód. ${escapar(irmao.codigo)} · barras ${escapar(irmao.barras || '-')}</span>
           <span style="text-align:right">${dinheiro(irmao.vendaAtual)}<br>
             <em>estoque ${irmao.estoque}</em></span>
-        </div>`).join('')}
+          <span class="irmao-acoes">
+            ${travado ? '' : `
+              <button class="botao secundario" data-vincular="${indice}" value="${escapar(irmao.codigo)}">
+                Vincular a este
+              </button>`}
+            <label class="irmao-desativar">
+              <input type="checkbox" data-desativar="${indice}" value="${escapar(irmao.codigo)}"
+                     ${desativar.includes(irmao.codigo) ? 'checked' : ''}
+                     ${travado ? 'disabled' : ''}>
+              <span>${irmao.cancelado ? 'já desativado'
+                : noOutro ? 'marcado no item ' + noOutro
+                : recebendo ? 'em uso no item ' + recebendo
+                : 'desativar'}</span>
+            </label>
+          </span>
+        </div>`;
+      }).join('')}
 
+      ${(() => {
+        // A limpa do cadastro em massa: marcar um por um numa nota de 40 itens
+        // é inviável. Este botão marca só o que a IA confirmou ser O MESMO
+        // produto (nunca as variações de tamanho/marca) e que ainda não foi
+        // resolvido em outro item.
+        const mesmos = parecidos.filter((i) => i.relacaoIA === 'mesmo'
+          && !i.cancelado
+          && !marcadoEmOutroItem.has(String(i.codigo))
+          && !recebendoMercadoria.has(String(i.codigo)));
+        const faltam = mesmos.filter((i) => !desativar.includes(i.codigo));
+        if (!mesmos.length) return '';
+        return `
+          <div class="irmaos-atalho">
+            <button class="botao secundario" data-desativar-mesmos="${indice}"
+                    ${faltam.length ? '' : 'disabled'}>
+              ${faltam.length
+                ? `Desativar os ${mesmos.length} que são o mesmo produto`
+                : `${mesmos.length} já marcados para desativar`}
+            </button>
+            ${desativar.length ? `<button class="botao-texto" data-limpar-desativar="${indice}">desmarcar todos</button>` : ''}
+          </div>`;
+      })()}
+
+      ${novo ? '' : `
       <label>
         <input type="checkbox" data-irmaos="${indice}" ${decisao.igualarIrmaos ? 'checked' : ''}>
-        <span>Deixar todos com o mesmo preço de venda
-          (${dinheiro(decisao.precoVenda)}).
-          <em>O estoque entra só no principal — os outros não são mexidos.</em></span>
-      </label>
+        <span>Deixar todos com o mesmo preço de venda (${dinheiro(decisao.precoVenda)}).
+          <em>O estoque entra só no vinculado — os outros não são mexidos.</em></span>
+      </label>`}
 
-      <div style="margin-top:10px">
-        <div style="font-weight:600;font-size:13px">Desativar os repetidos:</div>
-        <div class="ajuda" style="margin:2px 0 6px">
-          Escreve "DESATIVADO" no nome e marca como cancelado no Solus.
-          Nada é apagado — o histórico de compra dos clientes continua lá.
-        </div>
-        ${item.irmaos.map((irmao) => `
-          <label>
-            <input type="checkbox" data-desativar="${indice}"
-                   value="${escapar(irmao.codigo)}"
-                   ${desativar.includes(irmao.codigo) ? 'checked' : ''}>
-            <span>Desativar o cód. ${escapar(irmao.codigo)}
-              ${irmao.estoque !== 0
-                ? `<em style="color:var(--aviso)">— atenção: ainda tem ${irmao.estoque} em estoque</em>`
-                : ''}</span>
-          </label>`).join('')}
-      </div>
+      <p class="ajuda" style="margin:8px 0 0">
+        Desativar escreve " - DESATIVADO" no nome e marca como cancelado no Solus.
+        Nada é apagado: o histórico de compra dos clientes continua lá.
+      </p>
     </div>` : '';
 
   return `
@@ -468,7 +571,39 @@ function desenharItem(item, indice) {
       </div>
 
       <div class="item-etiquetas">${etiquetas.join('')}</div>
+      ${item.relacaoDoVinculoIA && item.relacaoDoVinculoIA !== 'mesmo' && !novo ? `
+        <div class="item-aviso">
+          <strong>A IA acha que não é o mesmo produto:</strong>
+          ${escapar(item.motivoDoVinculoIA || 'parece outro tamanho ou outra marca')}.
+          Confira antes de gravar — a mercadoria vai para o cadastro vinculado.
+        </div>`
+      : item.precisaConfirmarVinculo && !novo ? `
+        <div class="item-aviso">
+          <strong>Confira o vínculo:</strong> achei este produto pelo NOME parecido, não pelo código de
+          barras. Se não for ele, use "Vincular a este" num dos parecidos abaixo ou
+          "Cadastrar como novo".
+        </div>` : ''}
+      ${item.sugestaoDaIA ? `
+        <div class="item-aviso sugestao-ia">
+          <strong>A IA achou este cadastro:</strong> ${escapar(item.sugestaoDaIA.descricao)}
+          <em>(${escapar(item.sugestaoDaIA.motivo)})</em>.
+          <button class="botao secundario" data-vincular="${indice}" value="${escapar(item.sugestaoDaIA.codigo)}">
+            Vincular a este
+          </button>
+        </div>` : ''}
       ${avisos.join('')}
+      ${novo ? `
+        <label class="campo">
+          <span>Nome que vai para o cadastro
+            ${item.nomeSugerido ? '<em>(arrumado pela IA — confira)</em>' : ''}</span>
+          <input type="text" maxlength="70" data-nome="${indice}"
+                 value="${escapar(decisao.descricao ?? item.descricao)}">
+        </label>
+        ${item.nomeSugerido && item.nomeNaNota ? `
+          <p class="ajuda" style="margin:-6px 0 10px">
+            Na nota veio "${escapar(item.nomeNaNota)}".
+            <button class="botao-texto" data-nome-da-nota="${indice}">usar o nome da nota</button>
+          </p>` : ''}` : ''}
 
       <div class="comparacao">${blocoCusto}</div>
 
@@ -503,6 +638,7 @@ function desenharItem(item, indice) {
       ${blocoIrmaos}
 
       <div class="item-acoes">
+        ${novo ? '' : `<button class="botao secundario" data-virar-novo="${indice}">Cadastrar como novo</button>`}
         <button class="botao secundario" data-trocar="${indice}">
           ${novo ? 'Vincular a um produto' : 'Trocar produto'}
         </button>
@@ -514,6 +650,13 @@ function desenharItem(item, indice) {
 }
 
 function ligarEventosDosItens() {
+  // SÓ dentro da lista da nota. A tela de orçamento também tem [data-qtd] e
+  // [data-preco], e as duas ficam no documento ao mesmo tempo: procurando na
+  // página inteira, mudar a quantidade no orçamento mexia no item de mesmo
+  // número da NOTA aberta por baixo (achado pelo teste com navegador).
+  const lista = $('#lista-itens');
+  const $$ = (seletor) => (lista ? [...lista.querySelectorAll(seletor)] : []);
+
   // escolha de preco
   $$('[data-preco]').forEach((botao) => {
     botao.addEventListener('click', () => {
@@ -592,6 +735,60 @@ function ligarEventosDosItens() {
     });
   });
 
+  // limpa do cadastro: marcar de uma vez os que a IA confirmou ser o mesmo produto
+  $$('[data-desativar-mesmos]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      const indice = Number(botao.dataset.desativarMesmos);
+      const decisao = estado.decisoes[indice];
+      const jaResolvidos = new Set();
+      estado.decisoes.forEach((outra, i) => {
+        if (i !== indice) (outra?.desativarIrmaos || []).forEach((c) => jaResolvidos.add(String(c)));
+        const daOutra = estado.conferencia.itens[i];
+        if (outra?.acao !== 'ignorar' && daOutra?.produto?.codigo) jaResolvidos.add(String(daOutra.produto.codigo));
+      });
+
+      const mesmos = (estado.conferencia.itens[indice].irmaos || [])
+        .filter((i) => i.relacaoIA === 'mesmo' && !i.cancelado && !jaResolvidos.has(String(i.codigo)));
+
+      const comEstoque = mesmos.filter((i) => i.estoque !== 0);
+      if (comEstoque.length) {
+        const lista = comEstoque.map((i) => `• ${i.descricao} (estoque ${i.estoque})`).join('\n');
+        if (!confirm(`${comEstoque.length} destes ainda têm estoque:\n\n${lista}\n\n`
+          + 'Desativando, eles somem do PDV e esse estoque fica parado neles.\n\nConfirma?')) return;
+      }
+
+      decisao.desativarIrmaos = [...new Set([
+        ...(decisao.desativarIrmaos || []),
+        ...mesmos.map((i) => i.codigo),
+      ])];
+      desenharItens();
+      avisar(`${mesmos.length} cadastros marcados para desativar.`, 'ok');
+    });
+  });
+
+  $$('[data-limpar-desativar]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      estado.decisoes[Number(botao.dataset.limparDesativar)].desativarIrmaos = [];
+      desenharItens();
+    });
+  });
+
+  // nome do produto novo (o que vai para o cadastro do Solus)
+  $$('[data-nome]').forEach((campo) => {
+    campo.addEventListener('input', () => {
+      estado.decisoes[Number(campo.dataset.nome)].descricao = campo.value.slice(0, 70);
+    });
+  });
+  $$('[data-nome-da-nota]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      const indice = Number(botao.dataset.nomeDaNota);
+      const daNota = estado.conferencia.itens[indice].nomeNaNota;
+      estado.decisoes[indice].descricao = daNota;
+      const campo = lista?.querySelector(`[data-nome="${indice}"]`);
+      if (campo) campo.value = daNota;
+    });
+  });
+
   // nao lancar
   $$('[data-ignorar]').forEach((botao) => {
     botao.addEventListener('click', () => {
@@ -608,6 +805,57 @@ function ligarEventosDosItens() {
   $$('[data-trocar]').forEach((botao) => {
     botao.addEventListener('click', () => abrirBusca(Number(botao.dataset.trocar)));
   });
+
+  // vincular a um dos cadastros parecidos (ele passa a receber a mercadoria)
+  $$('[data-vincular]').forEach((botao) => {
+    botao.addEventListener('click', () => {
+      estado.itemEmBusca = Number(botao.dataset.vincular);
+      escolherProduto(botao.value);
+    });
+  });
+
+  // "nao e nenhum desses": vira produto novo
+  $$('[data-virar-novo]').forEach((botao) => {
+    botao.addEventListener('click', () => virarProdutoNovo(Number(botao.dataset.virarNovo)));
+  });
+}
+
+/**
+ * "Esse não é nenhum dos que já existem": desfaz o vínculo e cadastra novo.
+ * Antes, quando o Plugin casava pelo NOME PARECIDO e errava, só dava para
+ * trocar por outro produto — e a mercadoria acabava entrando no cadastro errado.
+ */
+async function virarProdutoNovo(indice) {
+  const item = estado.conferencia.itens[indice];
+  const nome = prompt('Cadastrar como produto NOVO com que nome?', item.descricao);
+  if (nome === null) return;
+
+  try {
+    const resposta = await fetch('/api/virar-novo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: estado.idConferencia, indice, descricao: nome.trim() || item.descricao }),
+    });
+    const resultado = await resposta.json();
+    if (!resultado.ok) throw new Error(resultado.erro);
+
+    estado.conferencia.itens[indice] = resultado.item;
+    estado.decisoes[indice] = {
+      acao: 'criar',
+      quantidadeUnidades: resultado.item.quantidadeUnidades,
+      custoUnitario: resultado.item.custoUnitario,
+      precoVenda: resultado.item.precoVenda,
+      igualarIrmaos: false,
+      // o que já estava marcado para desativar continua marcado
+      desativarIrmaos: estado.decisoes[indice]?.desativarIrmaos || [],
+      origemPreco: resultado.item.analise.recomendacao,
+      descricao: resultado.item.descricao,
+    };
+    desenharItens();
+    avisar('Vai ser cadastrado como produto novo.', 'ok');
+  } catch (erro) {
+    avisar('Não deu para mudar: ' + erro.message, 'erro');
+  }
 }
 
 async function recalcular(indice, mudancas) {
@@ -721,7 +969,8 @@ async function escolherProduto(codigo) {
       custoUnitario: resultado.item.custoUnitario,
       precoVenda: resultado.item.precoVenda,
       igualarIrmaos: false,
-      desativarIrmaos: [],
+      // o que ja estava marcado para desativar continua marcado
+      desativarIrmaos: estado.decisoes[indice]?.desativarIrmaos || [],
       origemPreco: resultado.item.analise.recomendacao,
     };
 
@@ -756,7 +1005,19 @@ $('#btn-gravar').addEventListener('click', async () => {
   mensagem += `• ${vaoGravar - novos} produtos terão estoque, custo e preço atualizados\n`;
   if (novos) mensagem += `• ${novos} produtos serão cadastrados novos\n`;
   if (igualados) mensagem += `• ${igualados} itens vão igualar o preço dos cadastros repetidos\n`;
-  if (desativados) mensagem += `• ${desativados} cadastros repetidos serão DESATIVADOS\n`;
+  if (desativados) {
+    // desativar é o que mais assusta na limpa do cadastro: os nomes aparecem
+    // ANTES de gravar, não só o número
+    const nomes = [];
+    estado.decisoes.forEach((decisao, i) => {
+      for (const codigo of decisao.desativarIrmaos || []) {
+        const irmao = (estado.conferencia.itens[i].irmaos || []).find((x) => x.codigo === codigo);
+        if (irmao) nomes.push(`   - ${irmao.descricao}${irmao.estoque ? ` (estoque ${irmao.estoque})` : ''}`);
+      }
+    });
+    mensagem += `• ${desativados} cadastros repetidos serão DESATIVADOS:\n${nomes.slice(0, 12).join('\n')}\n`;
+    if (nomes.length > 12) mensagem += `   ...e mais ${nomes.length - 12}\n`;
+  }
   mensagem += '\nDá para desfazer depois pelo Histórico.';
 
   if (!confirm(mensagem)) return;
@@ -792,6 +1053,11 @@ function mostrarResultado(resultado) {
     <div class="alerta-sucesso" style="padding:14px;border-radius:9px;margin-bottom:14px">
       <strong>Pronto! Gravado no Solus.</strong>
     </div>
+    ${resultado.aviso ? `<div class="alerta-erro" style="margin-bottom:14px">${escapar(resultado.aviso)}</div>` : ''}
+    ${r.itensIgnorados ? `<p class="ajuda" style="margin:-8px 0 12px">
+      ${r.itensIgnorados} ${r.itensIgnorados === 1 ? 'item não entrou' : 'itens não entraram'}
+      (marcados como "não entrar"). Abra o Histórico para ver quais.
+    </p>` : ''}
     <div class="resumo-grade">
       <div class="resumo-item">
         <div class="resumo-numero">${r.produtosAtualizados}</div>
@@ -892,6 +1158,8 @@ function ligarEtiquetas(registros) {
   for (const registro of registros || []) {
     if (!registro?.codigo || registro.semAlteracao) continue;
     if (registro.acao === 'desativado') continue;      // etiqueta de desativado não serve
+    // item que não entrou (ou tentativa que deu erro) não gera etiqueta
+    if (registro.acao === 'ignorado' || registro.acao === 'nao-gravado') continue;
     porCodigo.set(String(registro.codigo), {
       codigo: String(registro.codigo),
       descricao: registro.descricao || '',
@@ -1076,49 +1344,63 @@ async function imprimirEtiquetas(produtos, tamanho = 'padrao') {
 // Historico
 // ---------------------------------------------------------------------------
 
+const detalhesDoHistorico = new Map();     // id -> lancamento inteiro (nao busca duas vezes)
+
 async function carregarHistorico() {
   const area = $('#lista-historico');
   area.innerHTML = '<div class="cartao ajuda">Carregando...</div>';
   try {
-    const resposta = await fetch('/api/historico');
-    const resultado = await resposta.json();
+    const resultado = await api('/api/historico');
     if (!resultado.historico.length) {
       area.innerHTML = '<div class="cartao ajuda">Nenhuma nota lançada ainda.</div>';
       return;
     }
 
-    area.innerHTML = resultado.historico.map((registro) => {
-      const quando = new Date(registro.quando).toLocaleString('pt-BR');
-      return `
-        <div class="historico-item ${registro.desfeita ? 'desfeita' : ''}">
-          <div class="historico-topo">
-            <div>
-              <strong>Nota ${escapar(registro.nota?.numero || '-')}</strong><br>
-              <span class="historico-data">${escapar(registro.nota?.fornecedor?.nome || '')}</span>
-            </div>
-            <div class="historico-data" style="text-align:right">
-              ${quando}<br>${escapar(registro.operador || '')}
-            </div>
-          </div>
-          <div class="ajuda" style="margin:8px 0 0">
-            ${registro.resumo.produtosAtualizados} atualizados ·
-            ${registro.resumo.produtosCriados} novos ·
-            ${registro.resumo.precosIgualados} preços igualados
-          </div>
-          ${registro.desfeita
-            ? '<div class="etiqueta aviso" style="margin-top:8px;display:inline-block">desfeita</div>'
-            : `<button class="botao secundario largura-total" data-desfazer="${escapar(registro.id)}">
-                 Desfazer este lançamento
-               </button>`}
-        </div>`;
-    }).join('');
+    detalhesDoHistorico.clear();
+    area.innerHTML = resultado.historico.map(cartaoDoHistorico).join('');
+    aplicarIcones(area);
 
     area.querySelectorAll('[data-desfazer]').forEach((botao) => {
       botao.addEventListener('click', () => desfazerLancamento(botao.dataset.desfazer));
     });
+    area.querySelectorAll('[data-ver]').forEach((botao) => {
+      botao.addEventListener('click', () => abrirDetalhe(botao.dataset.ver, botao));
+    });
   } catch (erro) {
     area.innerHTML = `<div class="cartao alerta-erro">Erro: ${escapar(erro.message)}</div>`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// O detalhe: o que foi feito em CADA produto (e o que deu errado)
+// ---------------------------------------------------------------------------
+
+async function abrirDetalhe(id, botao) {
+  const area = document.querySelector(`[data-detalhe="${id}"]`);
+  if (!area) return;
+
+  // segundo clique fecha
+  if (!area.classList.contains('escondido')) {
+    area.classList.add('escondido');
+    botao.querySelector('span').textContent = 'Ver o que foi feito';
+    return;
+  }
+
+  botao.querySelector('span').textContent = 'Esconder';
+  area.classList.remove('escondido');
+
+  if (!detalhesDoHistorico.has(id)) {
+    area.innerHTML = '<div class="ajuda">Abrindo...</div>';
+    try {
+      const { dados } = await api('/api/historico/' + encodeURIComponent(id));
+      detalhesDoHistorico.set(id, dados);
+    } catch (erro) {
+      area.innerHTML = `<div class="alerta-erro">Não deu para abrir: ${escapar(erro.message)}</div>`;
+      return;
+    }
+  }
+
+  area.innerHTML = corpoDoDetalhe(detalhesDoHistorico.get(id));
 }
 
 async function desfazerLancamento(id) {
@@ -1147,9 +1429,11 @@ async function carregarConfig() {
       ? `Os ajustes abaixo valem para a loja ${config.lojaNome}.`
       : 'Os ajustes abaixo valem para a loja em que você entrou.';
     $('#cfg-chave-ia').value = config.ia.chave || '';
+    $('#cfg-ia-parecidos').checked = config.ia.conferirParecidos !== false;
     $('#cfg-arredondar').value = config.regras.arredondarPara ?? 0.9;
     $('#cfg-margem-novo').value = config.regras.margemNovoProduto ?? 30;
     $('#cfg-avisar').value = config.regras.avisarAumentoAcima ?? 10;
+    if ($('#cfg-meses-parado')) $('#cfg-meses-parado').value = String(config.regras.mesesParaParado ?? 12);
     $('#cfg-regime').value = config.empresa.regime || 'simples';
     $('#cfg-loja-nome').value = config.loja?.nome || '';
     $('#cfg-loja-cnpj').value = config.loja?.cnpj || '';
@@ -1176,7 +1460,7 @@ async function carregarConfig() {
 }
 
 // ---------------------------------------------------------------------------
-// Produtos parados ha mais de 2 anos (so gerente)
+// Produtos parados (so gerente) - o prazo vem dos Ajustes
 // ---------------------------------------------------------------------------
 
 let paradosCarregados = null;
@@ -1192,9 +1476,11 @@ async function contarParados() {
   $('#lista-parados').innerHTML = '';
   try {
     paradosCarregados = await api('/api/parados?limite=300');
-    const { total, comEstoque } = paradosCarregados;
+    const { total, comEstoque, dias } = paradosCarregados;
+    const prazo = prazoEmPalavras(dias);
+    $('#prazo-parado').textContent = prazo;
     $('#resumo-parados').innerHTML = total
-      ? `<strong>${total.toLocaleString('pt-BR')} produtos</strong> parados há mais de 2 anos`
+      ? `<strong>${total.toLocaleString('pt-BR')} produtos</strong> parados há mais de ${prazo}`
         + (comEstoque ? ` — <strong>${comEstoque}</strong> ainda com estoque no sistema.` : '.')
       : 'Nenhum produto parado sem a marca. Tudo em dia.';
     $('#btn-marcar-parados').disabled = !total;
@@ -1202,6 +1488,24 @@ async function contarParados() {
     $('#resumo-parados').textContent = erro.message;
   }
 }
+
+// Mudar o prazo salva na hora e reconta: quem mexe aqui quer ver o efeito.
+$('#cfg-meses-parado')?.addEventListener('change', async (evento) => {
+  const seletor = evento.currentTarget;
+  seletor.disabled = true;
+  try {
+    await api('/api/config', {
+      method: 'POST',
+      body: JSON.stringify({ regras: { mesesParaParado: Number(seletor.value) } }),
+    });
+    avisar(`Agora "parado" é sem movimento há ${prazoEmPalavras(Number(seletor.value) * 30.44)}.`, 'ok');
+    await contarParados();
+  } catch (erro) {
+    avisar(erro.message, 'erro');
+  } finally {
+    seletor.disabled = false;
+  }
+});
 
 $('#btn-ver-parados')?.addEventListener('click', () => {
   const area = $('#lista-parados');
@@ -1228,7 +1532,8 @@ $('#btn-marcar-parados')?.addEventListener('click', async (evento) => {
   const total = paradosCarregados?.total || 0;
   if (!total) return;
   const certeza = confirm(
-    `Escrever " - DESATIVADO" no nome de ${total.toLocaleString('pt-BR')} produtos parados há mais de 2 anos?\n\n`
+    `Escrever " - DESATIVADO" no nome de ${total.toLocaleString('pt-BR')} produtos parados há mais de `
+    + `${prazoEmPalavras(paradosCarregados?.dias)}?\n\n`
     + 'O produto continua no Solus (não é apagado nem bloqueado). Quando chegar nota dele, a marca sai sozinha.\n'
     + 'Dá para desfazer tudo pelo Histórico.'
   );
@@ -1336,6 +1641,7 @@ $('#btn-salvar-config').addEventListener('click', async () => {
     ia: {
       chave: $('#cfg-chave-ia').value.trim(),
       modelo: $('#cfg-modelo-ia').value,
+      conferirParecidos: $('#cfg-ia-parecidos').checked,
     },
     empresa: { regime: $('#cfg-regime').value },
     notas: { pastas: $('#cfg-pastas-notas').value.trim() },
@@ -1351,6 +1657,7 @@ $('#btn-salvar-config').addEventListener('click', async () => {
       arredondarPara: Number($('#cfg-arredondar').value),
       margemNovoProduto: Number($('#cfg-margem-novo').value),
       avisarAumentoAcima: Number($('#cfg-avisar').value),
+      mesesParaParado: Number($('#cfg-meses-parado')?.value) || 12,
       somarFrete: $('#cfg-frete').checked,
       somarIPI: $('#cfg-ipi').checked,
       somarST: $('#cfg-st').checked,

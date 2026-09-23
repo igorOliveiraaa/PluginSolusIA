@@ -241,16 +241,16 @@
       <h2>2. O que o cliente quer</h2>
       <p class="ajuda">
         Mande a foto da lista (pode ser escrita à mão), um print do WhatsApp,
-        um PDF — ou digite os itens.
+        um PDF, o <strong>áudio que o cliente mandou</strong> — ou digite os itens.
       </p>
 
       <div id="area-lista" class="area-arquivo">
         <div class="area-icone" data-icone="lista" data-icone-tamanho="34"></div>
         <div class="area-texto">
           <strong>Toque para escolher</strong>
-          <span>foto, print ou PDF da lista — ou cole com <kbd>Ctrl</kbd>+<kbd>V</kbd></span>
+          <span>foto, print, PDF ou áudio do WhatsApp — ou cole com <kbd>Ctrl</kbd>+<kbd>V</kbd></span>
         </div>
-        <input type="file" id="arquivo-lista" multiple accept=".pdf,image/*" hidden>
+        <input type="file" id="arquivo-lista" multiple accept=".pdf,image/*,audio/*,.ogg,.opus,.m4a,.mp3" hidden>
       </div>
 
       <button id="btn-foto-lista" class="botao secundario largura-total" data-icone="camera"><span>Tirar foto da lista</span></button>
@@ -424,6 +424,17 @@
         <span>Modelo <em>(deixe no recomendado)</em></span>
         <select id="cfg-modelo-ia"></select>
       </label>
+      <div class="caixinhas">
+        <label>
+          <input type="checkbox" id="cfg-ia-parecidos">
+          A IA confere os cadastros parecidos na entrada de nota
+        </label>
+      </div>
+      <p class="ajuda" style="margin:-4px 0 10px">
+        Ela diz quais cadastros são <strong>o mesmo produto</strong> e quais são outro
+        tamanho ou outra marca — é o que evita a mercadoria entrar no cadastro errado.
+        Uma chamada por nota (barata). Desligando, a conferência fica só por texto.
+      </p>
       <button id="btn-testar-ia" class="botao secundario">Testar chave</button>
       <div id="resultado-ia" class="resultado-teste"></div>
     </div>
@@ -464,11 +475,23 @@
     <div class="cartao" id="cartao-parados">
       <h2>Produtos parados</h2>
       <p class="ajuda">
-        Sem venda, sem entrada de nota e sem mudança de preço há mais de 2 anos.
+        Sem venda, sem entrada de nota e sem mudança de preço há mais de
+        <strong id="prazo-parado">1 ano</strong>.
         Marcar escreve <strong>" - DESATIVADO"</strong> no fim do nome, para todo mundo saber
         que não é mais trabalhado. O produto continua no Solus; quando chegar nota dele,
         o Plugin tira a marca sozinho. Dá para desfazer pelo Histórico.
       </p>
+      <label class="campo">
+        <span>Considerar parado sem movimento há
+          <em>(vale também para a sugestão do orçamento)</em></span>
+        <select id="cfg-meses-parado">
+          <option value="6">6 meses</option>
+          <option value="12">1 ano</option>
+          <option value="18">1 ano e meio</option>
+          <option value="24">2 anos</option>
+          <option value="36">3 anos</option>
+        </select>
+      </label>
       <div id="resumo-parados" class="ajuda">Contando...</div>
       <div class="acoes-pdf">
         <button id="btn-ver-parados" class="botao secundario" data-icone="lista"><span>Ver a lista</span></button>

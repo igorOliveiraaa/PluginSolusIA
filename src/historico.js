@@ -43,11 +43,73 @@ export function salvarAplicacao({ nota, registros, operador = '', observacao = '
       produtosCriados: registros.filter((r) => r.acao === 'criado').length,
       precosIgualados: registros.filter((r) => r.acao === 'preco-igualado').length,
       produtosDesativados: registros.filter((r) => r.acao === 'desativado').length,
+      itensIgnorados: registros.filter((r) => r.acao === 'ignorado').length,
+      reativados: registros.filter((r) => r.reativado).length,
+      semAlteracao: registros.filter((r) => r.semAlteracao).length,
+      vinculosCriados: registros.filter((r) => r.vinculoCriado?.novo).length,
+      precosMudados: registros.filter((r) => r.precoMudou).length,
     },
     registros,
   };
 
   fs.writeFileSync(caminhoDo(id), JSON.stringify(registro, null, 2), 'utf8');
+  return registro;
+}
+
+/**
+ * Guarda uma tentativa que DEU ERRO.
+ *
+ * A gravacao e uma transacao so: quando algo falha, o banco nao muda nada - e
+ * antes disso nao sobrava rastro nenhum, entao ninguem descobria por que "os
+ * produtos novos nao entraram". Agora a tentativa fica no historico, em
+ * vermelho, com o erro e com o que cada item ia fazer.
+ */
+export function salvarFalha({ nota = {}, itens = [], erro, operador = '', observacao = '' }) {
+  const id = gerarId();
+
+  const registro = {
+    id,
+    quando: new Date().toISOString(),
+    operador,
+    observacao,
+    falhou: true,
+    desfeita: false,
+    erro: String(erro?.message || erro || 'erro desconhecido'),
+    nota: {
+      origem: nota.origem,
+      numero: nota.numero,
+      serie: nota.serie,
+      chave: nota.chave,
+      emissao: nota.emissao,
+      fornecedor: nota.fornecedor,
+      totais: nota.totais,
+    },
+    resumo: {
+      produtosAtualizados: 0,
+      produtosCriados: 0,
+      precosIgualados: 0,
+      produtosDesativados: 0,
+      itensIgnorados: itens.filter((i) => i.acao === 'ignorar').length,
+      itensNaTentativa: itens.length,
+    },
+    // o que cada item IA fazer (nada foi gravado)
+    registros: itens.map((item) => ({
+      acao: 'nao-gravado',
+      iaFazer: item.acao || '',
+      codigo: item.produto?.codigo || '',
+      descricao: item.produto?.descricao || String(item.descricao || ''),
+      descricaoNaNota: String(item.descricao || ''),
+      quantidade: Number(item.quantidadeUnidades) || 0,
+      antes: null,
+      depois: null,
+    })),
+  };
+
+  try {
+    fs.writeFileSync(caminhoDo(id), JSON.stringify(registro, null, 2), 'utf8');
+  } catch {
+    /* nao conseguir anotar a falha nao pode virar um segundo erro na tela */
+  }
   return registro;
 }
 
@@ -69,6 +131,8 @@ export function listarHistorico(limite = 50) {
           quando: dados.quando,
           operador: dados.operador,
           desfeita: dados.desfeita,
+          falhou: Boolean(dados.falhou),
+          erro: dados.erro || '',
           nota: dados.nota,
           resumo: dados.resumo,
         };
@@ -101,7 +165,7 @@ export function notaJaAplicada({ chave, numero, cnpjFornecedor }) {
   const anteriores = listarHistorico(300);
   return (
     anteriores.find((registro) => {
-      if (registro.desfeita) return false;
+      if (registro.desfeita || registro.falhou) return false;   // nao gravou nada: nao conta como lancada
       const n = registro.nota || {};
       if (chave && n.chave) return n.chave === chave;
       if (numero && n.numero === numero && cnpjFornecedor) {

@@ -1,8 +1,8 @@
-// Produtos parados ha mais de 2 anos: marcar " - DESATIVADO" no nome.
+// Produtos parados: marcar " - DESATIVADO" no nome.
 //
-// Parado = sem venda, sem entrada de nota e sem mudanca de preco ha mais de
-// 2 anos (a mesma regra que tira o produto da sugestao do orcamento, ver
-// db/catalogo.js). Marcar no NOME e o que a loja pediu: quem olha a lista do
+// Parado = sem venda, sem entrada de nota e sem mudanca de preco ha mais do que
+// o prazo escolhido em Ajustes (padrao 12 meses) - a mesma regra que tira o
+// produto da sugestao do orcamento (ver db/catalogo.js). Marcar no NOME e o que a loja pediu: quem olha a lista do
 // Solus, a etiqueta ou o orcamento sabe na hora que aquilo nao e mais trabalhado.
 //
 // O STATUS do produto NAO muda: ele continua vendavel no Solus. Quando chegar
@@ -11,7 +11,7 @@
 // Tudo passa pelo historico: da para desfazer pela aba Historico como uma nota.
 
 import { emTransacao, gravarTexto } from './firebird.js';
-import { indiceDoCatalogo, invalidarCatalogo, DIAS_PARA_PARADO } from './catalogo.js';
+import { indiceDoCatalogo, invalidarCatalogo, diasParaParado } from './catalogo.js';
 import { estruturaDe } from './produtos.js';
 import { MARCA_DESATIVADO_REGEX } from './gravacao.js';
 
@@ -31,7 +31,7 @@ export async function listarParados() {
     .sort((a, b) => (a.ultimaAtividade || 0) - (b.ultimaAtividade || 0));
 
   return {
-    dias: DIAS_PARA_PARADO,
+    dias: diasParaParado(),
     referencia: indice.referencia,
     total: lista.length,
     comEstoque: lista.filter((p) => p.estoque > 0).length,
@@ -69,7 +69,10 @@ export async function marcarParados(codigos = null) {
         acao: 'desativado',
         codigo: produto.codigo,
         descricao: novoNome,
-        motivo: 'parado',
+        motivo: produto.ultimaAtividade
+          ? `sem movimento desde ${new Date(produto.ultimaAtividade).toLocaleDateString('pt-BR')}`
+          : 'sem nenhum movimento registrado',
+        nomeAntes: produto.descricao,
         antes: { DESCRICAO: produto.descricao },    // texto legivel: o desfazer converte
         depois: { estoque: produto.estoque },
       });

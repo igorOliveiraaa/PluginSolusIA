@@ -97,6 +97,11 @@ function desenhar() {
         <div class="tarefa-texto">
           <div class="tarefa-titulo">${escapar(t.titulo)}</div>
           <div class="tarefa-detalhe">${escapar(t.detalhe || '')}</div>
+          ${t.mensagemDaSefaz ? `
+            <details class="tarefa-dica">
+              <summary>o que a Sefaz respondeu, com as palavras dela</summary>
+              ${escapar(t.mensagemDaSefaz)}
+            </details>` : ''}
           ${t.acao === 'abrir-no-solus'
             ? '<div class="tarefa-dica">Isso se faz no Solus. Assim que for feito, some daqui sozinho.</div>'
             : ''}

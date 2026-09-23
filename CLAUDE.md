@@ -64,6 +64,11 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 | `src/leitura/ia.js` | Ler foto/PDF com o Google Gemini |
 | `src/leitura/gemini.js` | Porta única da IA: tenta de novo, usa modelo reserva e escolhe o provedor |
 | `src/leitura/openai.js` | O ChatGPT por trás dessa porta: traduz o pedido e a resposta |
+| `src/leitura/parecidos-ia.js` | A IA dizendo quais cadastros são o MESMO produto (nota e orçamento) |
+| `src/leitura/audio.js` | O áudio do WhatsApp virando texto (transcrição) |
+| `src/logica/sugestoes.js` | "Costuma levar também": o ritmo de compra de cada cliente |
+| `src/leitura/repor-ia.js` | A IA olhando as últimas compras: vale sugerir reposição? |
+| `src/leitura/sefaz-em-portugues.js` | A resposta da Sefaz explicada em português de gente |
 | `src/xlsx.js` | Escreve arquivo .xlsx (ZIP + XML na mão, sem biblioteca) |
 | `src/excel-orcamento.js` | O orçamento em planilha do Excel, com fórmulas |
 | `src/logica/padroes-fiscais.js` | CST, IBS/CBS e "acessa valores" que o produto precisa ter |
@@ -103,6 +108,8 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 | `web/marca.js` | O logo da loja no menu e as cores dele no Plugin inteiro |
 | `web/progresso.js` | O "trabalhando nisso" com etapas (nota, orçamento e chat) |
 | `web/colar.js` | Colar foto/print com Ctrl+V |
+| `web/formatos.js` | Dinheiro, número e escape de texto (sem tela: roda nos testes) |
+| `web/historico-visual.js` | O histórico na tela: o cartão e o "o que foi feito" item a item |
 | `web/efeitos.js` | A onda no clique e os movimentos gerais |
 | `web/aviso-ia.js` | Faixa de "acabou o crédito da IA" |
 | `src/ferramentas/` | Scripts de teste (`varredura.mjs` caça bugs no codigo; `gerar-icones.mjs` refaz os icones) |
@@ -241,11 +248,50 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - Preço: mostra "vende hoje por X (margem Y%)" e sugere o preço que mantém a margem.
   O arredondamento nunca puxa para baixo e não estoura em produto barato.
 - Cadastra produto novo sozinho, sempre em UNIDADE.
-- Produtos repetidos: mostra todos, iguala preço e/ou desativa os repetidos
-  (escreve " - DESATIVADO" no nome e marca STATUS='CANCELADO'). Nada é apagado.
-  O estoque entra **só** no cadastro principal.
+- **O nome do produto novo sai no padrão da loja** (`nomePadraoDaLoja`): o fornecedor
+  manda "SAB.PO OMO LAV.PERF 1,6KG" e era isso que ia para o cadastro, para a etiqueta
+  da prateleira e para o orçamento do cliente. A IA reescreve olhando como a loja nomeia
+  os parecidos → "SABAO EM PO OMO LAVAGEM PERFEITA 1,6KG". **O código confere antes de
+  aceitar**: nome que perdeu algum número (500ML, C/24, 1,6KG) é descartado e fica o da
+  nota (`manteveOsNumeros`) — foi o erro real que apareceu no teste. Na tela o nome vem
+  num campo editável, com "usar o nome da nota" do lado.
+- **Repetidos e parecidos, um por um** (`db/produtos.js: buscarParecidos`,
+  `logica/conferencia.js: parecidosDoItem`): TODO item traz até 8 cadastros parecidos
+  (mesmo nome, nome parecido, mesmo código de barras), com a etiqueta do porquê
+  ("mesmo nome", "nome parecido (87%)", "parado", "desativado"). Em cada linha dá para
+  **"Vincular a este"** (passa a receber a mercadoria) ou marcar **desativar**. Nada é
+  apagado: escreve " - DESATIVADO" no nome e marca STATUS='CANCELADO'. O estoque entra
+  **só** no cadastro vinculado. Opcional: igualar o preço de venda de todos.
+- **A IA confere os parecidos** (`leitura/parecidos-ia.js`): o texto escolhe os
+  candidatos (de graça) e a IA diz, um por um, se é **o mesmo produto**, uma
+  **variação** (outro tamanho, outra marca, outro material) ou **outra coisa** — com o
+  motivo em 6 palavras ("500 ml contra 5 litros"). É o que o texto não sabe fazer:
+  "DET. YPE 500" = "DETERGENTE YPE 500ML" (ele acha pouco parecido) e "ÁGUA SANITÁRIA
+  1L" ≠ "ÁGUA SANITÁRIA 5L" (ele acha 100%). Com isso a tela **avisa quando o cadastro
+  vinculado não é o mesmo produto** e sugere o certo, o "mesmo produto" vai para o topo
+  da lista (em verde) e nada é escondido. Uma chamada por nota (em blocos de 15, três
+  ao mesmo tempo): nota de 4 itens ~2s, de 60 itens 13s no total. 14/14 nos casos que
+  enganam o texto (`t-parecidos-ia.mjs`). **A IA não escolhe e não grava nada.**
+  Sem chave, sem crédito ou com erro, a nota entra igual e a tela avisa que a
+  comparação foi só por texto. Dá para desligar em Ajustes (`ia.conferirParecidos`).
+- **A limpa do cadastro** (vai ser MUITO usada: a loja tem repetido demais). Cada item
+  tem o botão **"Desativar os N que são o mesmo produto"**, que marca de uma vez só o
+  que a **IA confirmou ser o mesmo** — nunca as variações de tamanho ou marca. Antes de
+  gravar, a confirmação lista os NOMES do que vai ser desativado, não só o número.
+  Três travas, no servidor (a tela não é a única porta — o chat e a API também chamam):
+  1. **cadastro que está recebendo mercadoria nesta nota nunca é desativado** (seria
+     atualizar o estoque e cancelar o produto em seguida);
+  2. o mesmo cadastro marcado em dois itens é desativado **uma vez só**;
+  3. produto já desativado não é mexido de novo, e na tela ele aparece travado com
+     "já marcado para desativar no item 3" / "recebe a mercadoria no item 1", sem botão
+     de vincular. Provado em `t-limpa-cadastro.mjs`.
+- **"Cadastrar como novo"** em qualquer item (`POST /api/virar-novo`): quando o Plugin
+  casou pelo NOME e errou. O cadastro que estava vinculado vira o **primeiro da lista
+  de parecidos** — é justamente ele o candidato a desativar (o caso do "rodo de madeira
+  novo e os 4 velhos"). Quando o casamento foi só por nome, o item avisa
+  "confira o vínculo" antes de gravar.
 - Avisa se a nota já foi lançada antes.
-- Histórico com **desfazer** completo.
+- Histórico com **desfazer** completo e **detalhe item a item** (ver item 18).
 - **Campos fiscais que faltam são preenchidos** (`logica/padroes-fiscais.js`): CST 102,
   CST Cbs/Ibs 000, classificação 000001, acessa descrição N, acessa valores S, baixa
   estoque S. Só onde está VAZIO — quem já tem 500 configurado de propósito fica como
@@ -278,6 +324,13 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 
 ### 2. Orçamento — pronto
 - Lê a lista do cliente por foto/print/PDF (IA) ou digitada (sem IA, de graça).
+- **Áudio do WhatsApp vira orçamento** (`leitura/audio.js`): o cliente manda o áudio
+  ("me vê aí dez detergente e duas água sanitária de cinco litros") e ele entra na aba
+  Orçamento como qualquer arquivo. É transcrito (`gpt-4o-mini-transcribe` na OpenAI;
+  no Gemini o áudio vai junto no pedido normal), o texto segue pelo caminho da lista e
+  a tela mostra **"Ouvi isto no áudio: ..."** para conferir. Aceita ogg/opus do
+  WhatsApp, m4a do iPhone, mp3, wav e webm. Testado de ponta a ponta com voz gerada:
+  a fala virou 10 detergentes + 2 águas sanitárias de 5L (`t-audio-pedido.mjs`).
 - **Busca pelo índice do catálogo** (`db/catalogo.js`): ignora acento e cedilha,
   entende que "5LT", "5 L" e "5 litros" são a mesma coisa, aguenta erro de digitação
   e **põe na frente o que a loja mais vende e o que saiu por último**. Produto
@@ -317,9 +370,48 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   Testado com clientes reais: 30/30 pedidos (`t-preco-do-cliente.mjs`) e o caso
   "álcool 5L" em 12/12 (`t-alcool-5l.mjs`).
 - **Produto parado não é sugerido**: quem não teve venda, entrada nem mudança de preço
-  há mais de 2 anos (`DIAS_PARA_PARADO`) fica de fora da sugestão automática. Na
-  pesquisa que a pessoa faz na mão ele aparece, marcado como "parado há X anos".
-  São 7.920 dos 12.275 produtos da cópia do banco — por isso a busca melhorou tanto.
+  no prazo dos Ajustes (padrão 1 ano, `diasParaParado()`) fica de fora da sugestão
+  automática. Na pesquisa que a pessoa faz na mão ele aparece, marcado como "parado há
+  X anos". São 5.617 dos 12.275 produtos da cópia do banco.
+- **A IA confere a lista** (`conferirOpcoesComIA`, em `logica/orcamento.js`): o texto
+  escolhe os candidatos e a IA diz qual é MESMO o que o cliente pediu. Com isso:
+  item em dúvida com um só candidato certo é resolvido sozinho; produto escolhido
+  errado é trocado ("pediu 5 litros e veio o de 1 litro"), com aviso do que mudou;
+  e o que não foi achado é procurado de novo com **outro nome** — "qboa" vira
+  "água sanitária", "bombril" vira "lã de aço" (`outrosNomesDoProduto`).
+  Cada opção na tela ganha a etiqueta do parecer ("IA: é o que ele pediu",
+  "IA: 1 litro contra 5 litros"), e o título vira "2 destes servem — qual marca?".
+- **"Esse cliente costuma levar também"** (`logica/sugestoes.js`): no fim da lista
+  aparece o que ele provavelmente esqueceu de pedir, com um clique para adicionar.
+  O que decide é o **ritmo dele em cada produto**, não "ele sempre leva isso":
+  `intervalo = (última − primeira) ÷ (compras − 1)`, e só entra quem já passou de 80%
+  desse intervalo. **Quem comprou há pouco não aparece** (era a dúvida do Igor: cliente
+  que comprou semana passada e hoje veio só repor duas coisas). Também fica de fora
+  quem passou de 4 ciclos ou 1 ano sem levar — aí não é esquecimento, ele parou de
+  comprar. Mínimo de 3 compras, senão não há ritmo em que dê para confiar.
+- **A IA olha as últimas compras antes de sugerir** (`leitura/repor-ia.js`): a conta
+  não vê QUANTO ele levou. Quem comprou 24 de uma vez ainda tem estoque, mesmo "no
+  tempo" de repor. A IA recebe as 6 últimas compras (data e quantidade) de cada
+  candidato e tira o que não faz sentido, escrevendo o motivo em português de balcão
+  ("comprou 24 da última vez, deve ter estoque ainda", "leva 10 sempre e já está há 95
+  dias sem levar"). 5/5 nos casos difíceis (`t-repor-ia.mjs`). Sem IA fica só a conta.
+- **A IA nunca atropela as regras da casa** — e isso está provado em teste:
+  1. **o produto DO CLIENTE vem primeiro** na lista, na ordem da compra mais recente;
+     a IA só põe a etiqueta (ordenar pela IA fazia o álcool gel que o cliente compra
+     7x cair para o fim: `t-alcool-5l` caiu de 12/12 para 7/12 até isso ser corrigido);
+  2. **cliente que divide entre marcas continua sendo perguntado** (`umDominaOsOutros`);
+  3. **item que o cliente já comprou nunca vira "escolha o produto"** por causa da IA:
+     ou é trocado por um que claramente serve, ou fica como está com aviso;
+  4. **o que a pessoa escolheu na mão a IA não toca** (`ESCOLHIDO_NA_MAO`);
+  5. escolher o cliente DEPOIS passa pela IA de novo, senão o resultado saía diferente
+     de ter escolhido antes;
+  6. **cliente que compra 2 ou mais das opções e a IA aprovou só uma que não é dele**:
+     pergunta. Foi o que quebrou o `t-alcool-5l` (a IA aprovou só o genérico
+     "ALCOOL 70% LIQUIDO 5 LITROS" e reprovou as 4 marcas que o cliente leva —
+     escolher o genérico seria trocar a marca dele por conta própria).
+  Com a IA ligada os números do `t-preco-do-cliente` são os mesmos de sem ela
+  (30/30 produto, 27/30 preço, 30/30 cliente depois) — ela ganha nos casos difíceis
+  sem perder nos fáceis.
 
 ### 3. Cliente por CNPJ — pronto
 - Digita o CNPJ, busca em base pública e cadastra no Solus.
@@ -363,6 +455,13 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 ### 5. Venda, nota fiscal e tarefas — pronto
 - O orçamento vai para o Solus **com forma de pagamento, frete, entrega e validade**,
   já sugeridos pelo histórico do próprio cliente.
+- **A resposta da Sefaz em português de gente** (`leitura/sefaz-em-portugues.js`):
+  "Rejeicao: 610 - Total da NF difere do somatorio" vira "O total da nota não bate com
+  a soma dos itens. Confira desconto, frete e IPI.". As 16 rejeições comuns estão numa
+  tabela no código (**não gasta IA**); o que não estiver vai para a IA **uma vez** e
+  fica guardado em `dados/sefaz-explicado.json` — a aba Tarefas pergunta a cada 45
+  segundos e não se paga duas vezes. O texto original continua a um clique
+  ("o que a Sefaz respondeu, com as palavras dela").
 - O Plugin **acompanha sozinho** no banco: orçamento → venda faturada → nota gerada →
   nota autorizada. A aba **Tarefas** mostra o que falta e tira da lista quando o
   Solus resolve. Confere a cada 45 segundos e avisa quando a nota é autorizada.
@@ -498,10 +597,34 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   "image.png", então ele é renomeado para não parecer repetido.
 
 ### 16. Produtos parados → " - DESATIVADO" — pronto
-- Aba Ajustes (só gerente): mostra quantos produtos ativos estão parados há mais de
-  2 anos (4.503 na cópia do banco, 688 ainda com estoque), a lista, e marca todos com
-  " - DESATIVADO" no fim do nome. O STATUS não muda (continua vendável). Vai para o
-  Histórico: dá para desfazer. Quando chega nota do produto, a marca sai sozinha.
+- Aba Ajustes (só gerente): mostra quantos produtos ativos estão parados, a lista, e
+  marca todos com " - DESATIVADO" no fim do nome. O STATUS não muda (continua vendável).
+  Vai para o Histórico: dá para desfazer. Quando chega nota do produto, a marca sai
+  sozinha.
+- **O prazo é escolhido na tela** (6 meses, 1 ano, 1 ano e meio, 2 ou 3 anos) e vale
+  também para a sugestão do orçamento. Padrão hoje: **1 ano**
+  (`regras.mesesParaParado`, lido por `db/catalogo.js: diasParaParado()`). Na cópia do
+  banco: 5.617 parados com 1 ano contra 4.495 com 2 anos.
+- **Rodar de novo depois de mudar o prazo é seguro**: quem já tem a marca no nome sai
+  da conta, então ninguém ganha " - DESATIVADO" duas vezes; encurtar o prazo só
+  acrescenta os produtos novos da lista (provado em `t-parados.mjs`, seção 4).
+
+### 18. Histórico que mostra o que foi feito — pronto
+- Cada lançamento **abre no clique** ("Ver o que foi feito") e mostra, item a item:
+  o que aconteceu (cadastrado novo / atualizado / preço igualado / desativado /
+  **não entrou**), estoque, custo e venda **de quanto para quanto** (só o que mudou),
+  o nome de antes, o que a nota preencheu no cadastro, quantos campos fiscais entraram,
+  se o produto voltou a ser ativo e se o preço mudou (etiqueta nova).
+- **Item marcado "não entrar" agora vira registro** com o motivo — era a pergunta da
+  loja ("por que esse produto não entrou?") e antes não sobrava rastro nenhum.
+- **Tentativa que dá erro também fica no histórico**, em vermelho, com a mensagem e com
+  o que cada item ia fazer. A gravação é tudo ou nada, então nada mudou no Solus — e o
+  cartão não oferece "desfazer" (não há o que desfazer).
+- Se der erro **depois** de gravar (salvar arquivo, memória de caixas), o lançamento é
+  salvo assim mesmo, com aviso: o banco já mudou e tem que dar para desfazer.
+- O HTML dessa tela vive em `web/historico-visual.js`, sem tocar em tela nenhuma, e é
+  conferido por fora do navegador em `t-historico-tela.mjs` (inclusive histórico
+  antigo, sem os campos novos, e nome de produto com `<`, `>` e `&`).
 
 ### 17. Endereço que não muda — pronto
 - O roteador troca o IP do PC servidor quase todo dia. O Plugin agora se anuncia na rede
@@ -528,7 +651,16 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
   pasta onde o ACBr já salvou (precisa da pasta cadastrada em Ajustes).
 
 ### Pendente
-- **Testar com nota e lista reais da loja** (é o próximo passo).
+- **Primeiro teste na loja (21-22/09/2026)**: a nota entrou, mas os produtos novos não
+  foram cadastrados e os repetidos não apareceram para escolher. Corrigido aqui
+  (parecidos em todo item, "Cadastrar como novo", histórico detalhado, prazo de parado
+  em 1 ano) e provado em `t-nota-parecidos.mjs`. **Falta repetir o teste na loja com
+  nota real** e conferir na tela.
+- Na loja, **rodar de novo os "Produtos parados"** com o prazo em 1 ano: os que já
+  estão marcados ficam como estão; só entram os que passaram a contar.
+- **Olhar o gasto da conferência por IA** nos primeiros dias (Usage da OpenAI): é uma
+  chamada de texto curto por nota e outra por orçamento. Se pesar, a caixinha em
+  Ajustes (`ia.conferirParecidos`) desliga as duas sem mexer em mais nada.
 - **Na loja, conferir o nome no celular**: abrir `https://plugin-solus.local:3536` no
   celular. Se não abrir (Android antigo), reservar o IP do PC servidor no roteador.
 - **App Android de verdade (.apk)**: não feito. Precisa instalar o JDK 17 e as ferramentas

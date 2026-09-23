@@ -172,9 +172,23 @@ export function campoTexto(campo, tamanho = 100, apelido = null) {
 }
 
 /** Bytes vindos do banco -> texto legivel com acento certo. */
+// Quase tudo no banco foi gravado pelo Solus em Windows-1252. Mas nem tudo: o
+// ACBrMonitor grava a resposta da Sefaz em UTF-8, e ela aparecia na tela como
+// "RejeiÃ§Ã£o: IE do destinatÃ¡rio nÃ£o informada". Texto em UTF-8 de verdade se
+// denuncia sozinho: os bytes acima de 127 formam sequências válidas de UTF-8, o
+// que um texto em Windows-1252 com acento praticamente nunca faz ("SABÃO" é
+// 53 41 42 C3 4F - o C3 seguido de 4F não é UTF-8). Então: se passa como UTF-8
+// estrito, é UTF-8; senão, é o Windows-1252 de sempre.
+const utf8Estrito = new TextDecoder('utf-8', { fatal: true });
+
 export function lerTexto(valor) {
   if (valor === null || valor === undefined) return '';
-  if (Buffer.isBuffer(valor)) return decodificador.decode(valor).trim();
+  if (Buffer.isBuffer(valor)) {
+    if (valor.some((byte) => byte > 127)) {
+      try { return utf8Estrito.decode(valor).trim(); } catch { /* não é UTF-8: segue */ }
+    }
+    return decodificador.decode(valor).trim();
+  }
   return String(valor).trim();
 }
 

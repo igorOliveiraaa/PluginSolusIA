@@ -24,6 +24,7 @@ import { gravarOrcamento, apagarOrcamento } from './db/orcamento.js';
 import { gerarPdfOrcamento, textoDoWhatsApp, dadosDaLoja } from './pdf-orcamento.js';
 import { acompanharOrcamento } from './tarefas.js';
 import { guardarOrcamento, pegarOrcamento } from './orcamentos-abertos.js';
+import { ehAudio, transcreverAudios } from './leitura/audio.js';
 
 export const rotas = express.Router();
 
@@ -131,19 +132,37 @@ rotas.post('/api/orcamento/montar', exigirLogin, upload.array('arquivos', 10), a
     const codigoCliente = String(req.body.cliente || '').trim();
     const nomeCliente = String(req.body.nomeCliente || '').trim();
 
-    const arquivos = (req.files || [])
+    const enviados = req.files || [];
+    const arquivos = enviados
       .filter((a) => TIPOS_ACEITOS.includes(a.mimetype))
       .map((a) => ({ base64: a.buffer.toString('base64'), tipo: a.mimetype }));
 
-    if (!arquivos.length && !textoDigitado) {
-      throw new Error('Envie uma foto/PDF da lista ou digite os itens.');
+    // ÁUDIO: metade dos pedidos chega por áudio no WhatsApp. Ele é transcrito
+    // e entra como se a pessoa tivesse digitado ("me vê dez detergente...").
+    const audios = enviados.filter((a) => ehAudio(a.mimetype, a.originalname));
+    let oQueFoiFalado = '';
+    if (audios.length) {
+      oQueFoiFalado = await transcreverAudios(
+        audios.map((a) => ({ buffer: a.buffer, tipo: a.mimetype, nome: a.originalname }))
+      );
+      if (!oQueFoiFalado && !arquivos.length && !textoDigitado) {
+        throw new Error('Não consegui entender o que foi falado no áudio. Tente um áudio mais claro ou digite os itens.');
+      }
+    }
+
+    const textoTotal = [textoDigitado, oQueFoiFalado].filter(Boolean).join('\n');
+
+    if (!arquivos.length && !textoTotal) {
+      throw new Error('Envie uma foto/PDF da lista, um áudio ou digite os itens.');
     }
 
     // lista so digitada nao precisa de IA: a leitura aqui e exata e de graca.
-    // A IA entra quando tem foto ou PDF para ler.
-    const lista = arquivos.length
-      ? await lerListaDeCompras(arquivos, textoDigitado, observacao)
-      : lerListaDigitada(textoDigitado);
+    // A IA entra quando tem foto, PDF ou áudio (fala vem bagunçada: "umas duas
+    // água sanitária de cinco litros" não é uma lista de compras arrumada).
+    const lista = arquivos.length || oQueFoiFalado
+      ? await lerListaDeCompras(arquivos, textoTotal, observacao)
+      : lerListaDigitada(textoTotal);
+    if (oQueFoiFalado) lista.oQueFoiFalado = oQueFoiFalado;
     if (!lista.itens.length) {
       throw new Error('Nao consegui identificar nenhum item na lista.');
     }
@@ -243,6 +262,9 @@ rotas.post('/api/orcamento/adicionar', exigirLogin, async (req, res) => {
       opcoes: [produto],
     });
     orcamento.itens.push(novo);
+    // entrou na lista: sai do "costuma levar também" (a tela e o servidor
+    // precisam concordar, senão reabrir o orçamento sugeria de novo)
+    orcamento.sugestoes = (orcamento.sugestoes || []).filter((s) => s.produto?.codigo !== produto.codigo);
 
     res.json({ ok: true, orcamento, resumo: recalcularResumo(orcamento) });
   } catch (e) { erro(res, e); }

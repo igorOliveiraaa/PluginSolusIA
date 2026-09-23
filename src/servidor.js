@@ -16,7 +16,7 @@ import {
   semCustoParaQuemNaoPodeVer,
 } from './db/produtos.js';
 import { gerarPdfEtiquetas, contarFolhas, TAMANHOS } from './etiquetas.js';
-import { invalidarCatalogo } from './db/catalogo.js';
+import { invalidarCatalogo, diasParaParado } from './db/catalogo.js';
 import { aplicarNota, desfazer } from './db/gravacao.js';
 import { lerXmlNfe, pareceXmlNfe } from './leitura/xml.js';
 import { lerDocumentoComIA, testarChave, listarModelos, interpretarObservacao } from './leitura/ia.js';
@@ -25,10 +25,10 @@ import { decidirCaixa } from './logica/caixa.js';
 import { listarParados, marcarParados } from './db/parados.js';
 import { anunciarNomeNaRede, NOME_NA_REDE } from './nome-na-rede.js';
 import { lembrarCaixa, guardarCaixas } from './memoria-caixas.js';
-import { montarConferencia } from './logica/conferencia.js';
+import { montarConferencia, parecidosDoItem } from './logica/conferencia.js';
 import { analisarItem } from './logica/precos.js';
 import {
-  salvarAplicacao, listarHistorico, lerAplicacao, marcarComoDesfeita, notaJaAplicada,
+  salvarAplicacao, salvarFalha, listarHistorico, lerAplicacao, marcarComoDesfeita, notaJaAplicada,
 } from './historico.js';
 import { rotas as rotasOrcamento } from './rotas-orcamento.js';
 import { rotasAssistente } from './rotas-assistente.js';
@@ -214,6 +214,19 @@ app.post('/api/trocar-produto', exigirLogin, async (req, res) => {
     if (!produto) throw new Error('Produto nao encontrado no Solus.');
 
     const cfg = carregarConfig();
+
+    // O parecer da IA ("e o mesmo produto" / "outro tamanho") e sobre o ITEM DA
+    // NOTA, nao sobre qual cadastro esta vinculado - entao continua valendo
+    // depois da troca. Sem guardar isso, "Vincular a este" apagava as etiquetas
+    // e sumia o botao "Desativar os que sao o mesmo produto", bem na hora da limpa.
+    const pareceres = new Map();
+    for (const irmao of item.irmaos || []) {
+      if (irmao.relacaoIA) pareceres.set(String(irmao.codigo), { relacaoIA: irmao.relacaoIA, motivoIA: irmao.motivoIA });
+    }
+    if (item.produto?.codigo && item.relacaoDoVinculoIA) {
+      pareceres.set(String(item.produto.codigo), { relacaoIA: item.relacaoDoVinculoIA, motivoIA: item.motivoDoVinculoIA });
+    }
+
     // produto trocado: caixa x unidade e decidido de novo com a unidade DESTE produto
     // (trocar de um que se vende em UN para um vendido em CX muda a quantidade)
     Object.assign(item, decidirCaixa(item, produto, lembrarCaixa));
@@ -224,6 +237,75 @@ app.post('/api/trocar-produto', exigirLogin, async (req, res) => {
     item.analise = analisarItem({ produto, custoNovo: item.custoUnitario, regras: cfg.regras });
     item.precoVenda = item.analise.precoEscolhido;
     item.precisaAtencao = false;
+    item.precisaConfirmarVinculo = false;
+    // quem escolheu foi a pessoa: a sugestao da IA para este item ja foi respondida
+    item.sugestaoDaIA = null;
+    const doEscolhido = pareceres.get(String(produto.codigo));
+    item.relacaoDoVinculoIA = doEscolhido?.relacaoIA || null;
+    item.motivoDoVinculoIA = doEscolhido?.motivoIA || '';
+
+    // a lista de parecidos e refeita para o produto novo escolhido (e sem ele dentro)
+    item.irmaos = (await parecidosDoItem(item, produto)).map((irmao) => ({
+      ...irmao,
+      ...(pareceres.get(String(irmao.codigo)) || {}),
+    }));
+
+    res.json({ ok: true, item });
+  } catch (erro) {
+    responderErro(res, erro);
+  }
+});
+
+/**
+ * "Nao e nenhum desses: cadastra novo."
+ * Desfaz o vinculo que o Plugin tinha escolhido e deixa o item como produto novo.
+ * Existe porque casar por NOME PARECIDO as vezes erra - e antes, na tela, so dava
+ * para trocar por outro produto, nunca para dizer "esse e novo mesmo".
+ */
+app.post('/api/virar-novo', exigirLogin, async (req, res) => {
+  try {
+    const { id, indice, descricao } = req.body;
+    const guardada = conferenciasAbertas.get(id);
+    if (!guardada) throw new Error('Essa conferencia expirou. Envie a nota de novo.');
+    if (guardada.lojaId !== lojaAtualId()) throw new Error('Essa nota foi lida em outra loja.');
+
+    const item = guardada.dados.itens[indice];
+    if (!item) throw new Error('Item nao encontrado.');
+
+    const cfg = carregarConfig();
+    if (descricao !== undefined) item.descricao = String(descricao).slice(0, 70);
+    // sem produto vinculado, a caixa volta a ser decidida pelo que a nota diz
+    Object.assign(item, decidirCaixa(item, null, lembrarCaixa));
+
+    // o cadastro que estava vinculado vira o PRIMEIRO da lista de parecidos:
+    // e justamente ele o candidato a ser desativado ("cadastramos o rodo de
+    // madeira novo e o velho ficou la")
+    const deAntes = item.produto;
+    if (deAntes?.codigo && !(item.irmaos || []).some((i) => i.codigo === deAntes.codigo)) {
+      item.irmaos = [
+        {
+          ...deAntes,
+          parecenca: 1,
+          motivo: 'era o vinculado antes',
+          // o que a IA achou dele continua valendo (e o que habilita "desativar os
+          // que sao o mesmo produto" na limpa)
+          relacaoIA: item.relacaoDoVinculoIA || undefined,
+          motivoIA: item.motivoDoVinculoIA || undefined,
+        },
+        ...(item.irmaos || []),
+      ].slice(0, 9);
+    }
+    item.produto = null;
+    item.relacaoDoVinculoIA = null;
+    item.motivoDoVinculoIA = '';
+    item.sugestaoDaIA = null;
+    item.acao = 'criar';
+    item.comoAchou = 'cadastrar novo (escolhido na tela)';
+    item.certezaDoCasamento = 'alta';
+    item.analise = analisarItem({ produto: null, custoNovo: item.custoUnitario, regras: cfg.regras });
+    item.precoVenda = item.analise.precoEscolhido;
+    item.precisaAtencao = false;
+    item.precisaConfirmarVinculo = false;
 
     res.json({ ok: true, item });
   } catch (erro) {
@@ -257,16 +339,20 @@ app.get('/api/produtos', exigirLogin, async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.post('/api/aplicar', exigirLogin, exigirPermissao('mexerProduto'), async (req, res) => {
+  // guardados fora do try: se der erro, a tentativa vai para o historico
+  let conferencia = null;
+  let itens = [];
+  let gravados = null;      // se ja gravou, o erro NAO pode dizer "nada foi gravado"
   try {
     const { id, decisoes, operador, atualizarEstoque = true } = req.body;
     const guardada = conferenciasAbertas.get(id);
     if (!guardada) throw new Error('Essa conferencia expirou. Envie a nota de novo.');
     if (guardada.lojaId !== lojaAtualId()) throw new Error('Essa nota foi lida em outra loja.');
 
-    const conferencia = guardada.dados;
+    conferencia = guardada.dados;
 
     // aplica as decisoes que vieram da tela em cima dos itens conferidos
-    const itens = conferencia.itens.map((item, indice) => {
+    itens = conferencia.itens.map((item, indice) => {
       const decisao = decisoes?.[indice] || {};
       return {
         ...item,
@@ -283,24 +369,31 @@ app.post('/api/aplicar', exigirLogin, exigirPermissao('mexerProduto'), async (re
     const paraGravar = itens.filter((i) => i.acao !== 'ignorar');
     if (!paraGravar.length) throw new Error('Nenhum item foi marcado para gravar.');
 
-    const registros = await aplicarNota({ itens, atualizarEstoque, fornecedor: conferencia.fornecedor });
+    gravados = await aplicarNota({ itens, atualizarEstoque, fornecedor: conferencia.fornecedor });
+    const registros = gravados;
 
     // aprende quantas unidades vem na caixa de cada produto (o que ficou decidido
-    // na tela, inclusive o que a pessoa corrigiu), para a proxima nota sair sozinha
-    const criados = registros.filter((r) => r.acao === 'criado');
-    let proximoCriado = 0;
-    guardarCaixas(itens.filter((i) => i.acao !== 'ignorar').map((item) => {
-      const codigo = item.acao === 'criar' ? criados[proximoCriado++]?.codigo : item.produto?.codigo;
-      const qCom = Number(item.quantidadeComercial) || 0;
-      const porCaixa = qCom > 0 ? Number(item.quantidadeUnidades) / qCom : 0;
-      return {
-        codigoProduto: codigo,
-        unidadeDaNota: item.unidadeComercial || item.unidadeOriginal,
-        porCaixa: Number.isInteger(porCaixa) ? porCaixa : 0,
-        fornecedor: conferencia.fornecedor?.nome || '',
-        descricaoNaNota: item.descricao,
-      };
-    }));
+    // na tela, inclusive o que a pessoa corrigiu), para a proxima nota sair sozinha.
+    // Daqui para baixo o banco JA MUDOU: nada aqui pode derrubar a gravacao.
+    try {
+      const criados = registros.filter((r) => r.acao === 'criado');
+      let proximoCriado = 0;
+      guardarCaixas(itens.filter((i) => i.acao !== 'ignorar').map((item) => {
+        const codigo = item.acao === 'criar' ? criados[proximoCriado++]?.codigo : item.produto?.codigo;
+        const qCom = Number(item.quantidadeComercial) || 0;
+        const porCaixa = qCom > 0 ? Number(item.quantidadeUnidades) / qCom : 0;
+        return {
+          codigoProduto: codigo,
+          unidadeDaNota: item.unidadeComercial || item.unidadeOriginal,
+          porCaixa: Number.isInteger(porCaixa) ? porCaixa : 0,
+          fornecedor: conferencia.fornecedor?.nome || '',
+          // o nome COMO VEIO NA NOTA (o do produto novo pode ter sido arrumado pela IA)
+          descricaoNaNota: item.nomeNaNota || item.descricao,
+        };
+      }));
+    } catch (falha) {
+      console.error('[memoria-caixas]', falha.message);
+    }
 
     const historico = salvarAplicacao({
       nota: conferencia,
@@ -313,6 +406,39 @@ app.post('/api/aplicar', exigirLogin, exigirPermissao('mexerProduto'), async (re
 
     res.json({ ok: true, historico: historico.id, registros, resumo: historico.resumo });
   } catch (erro) {
+    // deu erro DEPOIS de gravar (salvar o arquivo do historico, por exemplo):
+    // o banco ja mudou, entao o lancamento tem que existir para dar para desfazer
+    if (gravados) {
+      try {
+        const salvo = salvarAplicacao({
+          nota: conferencia,
+          registros: gravados,
+          operador: String(req.body?.operador || '').trim(),
+          observacao: `GRAVOU, mas deu erro depois: ${erro.message}`,
+        });
+        return res.json({
+          ok: true,
+          historico: salvo.id,
+          registros: gravados,
+          resumo: salvo.resumo,
+          aviso: `A nota foi gravada, mas deu um erro depois: ${erro.message}`,
+        });
+      } catch (outro) {
+        console.error('[aplicar] gravou e nao consegui salvar o historico', outro.message);
+      }
+    }
+
+    // a nota nao entrou: fica registrada a tentativa, com o erro e com o que
+    // cada item ia fazer - senao ninguem descobre depois o que aconteceu
+    if (conferencia) {
+      salvarFalha({
+        nota: conferencia,
+        itens,
+        erro,
+        operador: String(req.body?.operador || '').trim(),
+        observacao: conferencia.observacaoDoOperador || '',
+      });
+    }
     responderErro(res, erro, 500);
   }
 });
@@ -344,6 +470,7 @@ app.post('/api/desfazer/:id', exigirLogin, exigirPermissao('mexerProduto'), asyn
     const dados = lerAplicacao(req.params.id);
     if (!dados) throw new Error('Lancamento nao encontrado.');
     if (dados.desfeita) throw new Error('Esse lancamento ja foi desfeito antes.');
+    if (dados.falhou) throw new Error('Essa tentativa deu erro e nao gravou nada: nao ha o que desfazer.');
 
     const resultado = await desfazer(dados.registros);
     marcarComoDesfeita(dados.id, resultado);
@@ -476,7 +603,9 @@ app.get('/api/logo/existe', exigirLogin, (req, res) => {
 /** A imagem em si. Serve tanto para a previa em Ajustes quanto para o PDF. */
 app.get('/api/logo', exigirLogin, (req, res) => {
   const logo = lerLogo();
-  if (!logo) return res.status(404).json({ ok: false, erro: 'Essa loja ainda nao tem logo.' });
+  // 204 (e nao 404): loja sem logo e o normal, nao um erro. O 404 aparecia
+  // como erro vermelho no console a cada abertura e escondia erro de verdade.
+  if (!logo) return res.status(204).end();
   res.setHeader('Content-Type', logo.tipo);
   // o navegador nao pode guardar: trocar o logo tem que aparecer na hora
   res.setHeader('Cache-Control', 'no-store');
@@ -513,7 +642,7 @@ app.get('/api/testar-ia', exigirLogin, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Produtos parados ha mais de 2 anos -> " - DESATIVADO" no nome
+// Produtos parados (o prazo vem dos Ajustes) -> " - DESATIVADO" no nome
 // ---------------------------------------------------------------------------
 
 app.get('/api/parados', exigirLogin, exigirPermissao('gerente'), async (req, res) => {
@@ -545,7 +674,7 @@ app.post('/api/parados/marcar', exigirLogin, exigirPermissao('gerente'), async (
       },
       registros,
       operador: req.operador?.nome || '',
-      observacao: 'Sem venda, entrada ou mudanca de preco ha mais de 2 anos',
+      observacao: `Sem venda, entrada ou mudanca de preco ha mais de ${Math.round(diasParaParado() / 30.44)} meses`,
     });
     res.json({ ok: true, marcados: registros.length, historico: historico.id });
   } catch (erro) {

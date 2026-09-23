@@ -37,6 +37,7 @@ const PADRAO_GLOBAL = {
     provedor: '',                     // 'openai' (ChatGPT) ou 'gemini'; vazio = descobre pela chave
     chave: '',                        // chave da IA (tela de Ajustes): sk-... e da OpenAI
     modelo: '',                       // vazio = o recomendado de cada IA (gpt-5.4-mini / gemini-flash-latest)
+    conferirParecidos: true,          // a IA diz quais cadastros parecidos sao o MESMO produto
   },
   regras: {
     manterMargem: true,         // sugerir preco que mantem a mesma margem de hoje
@@ -44,6 +45,7 @@ const PADRAO_GLOBAL = {
     margemNovoProduto: 30,      // margem % usada quando o produto ainda nao existe
     avisarAumentoAcima: 10,     // destacar quando o custo sobe/cai mais que 10%
     margemMinima: 0,            // avisar quando a margem cair abaixo disso
+    mesesParaParado: 12,        // produto sem movimento ha mais meses que isso e 'parado'
     somarFrete: true,           // frete e despesas entram no custo
     somarIPI: true,             // IPI entra no custo
     somarST: true,              // ICMS-ST entra no custo

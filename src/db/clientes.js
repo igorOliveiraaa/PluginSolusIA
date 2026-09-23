@@ -276,6 +276,73 @@ function listaDeChaves(chaves) {
 }
 
 /** Ultimo preco que ESTE cliente pagou neste produto. */
+/**
+ * De quanto em quanto tempo este cliente compra cada produto.
+ *
+ * É o que responde "ele esqueceu de pedir?" sem chutar: quem comprou papel
+ * toalha semana passada NÃO precisa de papel toalha hoje. Conta PEDIDOS
+ * diferentes (o mesmo produto duas vezes na mesma venda conta uma), e traz a
+ * primeira e a última compra - com isso dá para calcular o intervalo médio.
+ */
+export async function ritmoDeCompra(codigoCliente, anos = 2) {
+  const cod = String(codigoCliente || '').trim();
+  if (!cod) return [];
+  const desde = new Date();
+  desde.setFullYear(desde.getFullYear() - anos);
+
+  const linhas = await consultar(
+    `SELECT TRIM(I.PRODUTO) AS CHAVE, COUNT(DISTINCT I.NUMERO) AS VEZES,
+            MIN(I.DATA) AS PRIMEIRA, MAX(I.DATA) AS ULTIMA
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE TRIM(P.CODCLIENTE) = ? AND I.DATA >= ?
+        AND ${VENDA_VALIDA}
+      GROUP BY 1`,
+    [cod, desde]
+  );
+
+  return linhas.map((l) => ({
+    chave: String(l.CHAVE || '').trim(),
+    vezes: Number(l.VEZES) || 0,
+    primeira: l.PRIMEIRA,
+    ultima: l.ULTIMA,
+  })).filter((l) => l.chave && l.vezes > 0);
+}
+
+/**
+ * As últimas compras deste cliente, produto por produto (data e QUANTIDADE).
+ *
+ * O ritmo médio não conta a história toda: quem levou 20 caixas da última vez
+ * não precisa repor em 20 dias, e quem levou 2 precisa. É isso que a IA olha
+ * antes de sugerir reposição (ver `logica/sugestoes.js`).
+ */
+export async function comprasPorProduto(codigoCliente, chaves, porProduto = 6) {
+  const cod = String(codigoCliente || '').trim();
+  const lista = [...new Set((chaves || []).map((c) => String(c || '').trim()).filter(Boolean))];
+  if (!cod || !lista.length) return new Map();
+
+  const marcadores = lista.map(() => '?').join(', ');
+  const linhas = await consultar(
+    `SELECT TRIM(I.PRODUTO) AS CHAVE, I.DATA, I.QTD
+       FROM ITEMPEDIDO I
+       JOIN PEDIDOS P ON P.NUMERO = I.NUMERO
+      WHERE TRIM(P.CODCLIENTE) = ? AND TRIM(I.PRODUTO) IN (${marcadores})
+        AND ${VENDA_VALIDA}
+      ORDER BY I.DATA DESC`,
+    [cod, ...lista]
+  );
+
+  const porChave = new Map();
+  for (const linha of linhas) {
+    const chave = String(linha.CHAVE || '').trim();
+    const compras = porChave.get(chave) || [];
+    if (compras.length >= porProduto) continue;
+    compras.push({ data: linha.DATA, quantidade: paraNumero(linha.QTD) });
+    porChave.set(chave, compras);
+  }
+  return porChave;
+}
+
 export async function ultimoPrecoDoCliente(codigoCliente, chaves) {
   const cod = String(codigoCliente || '').trim();
   const lista = listaDeChaves(chaves);

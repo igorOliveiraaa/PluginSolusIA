@@ -3,18 +3,9 @@
 export const $ = (selecao) => document.querySelector(selecao);
 export const $$ = (selecao) => [...document.querySelectorAll(selecao)];
 
-export const dinheiro = (valor) =>
-  'R$ ' + (Number(valor) || 0).toFixed(2).replace('.', ',');
-
-export const escapar = (texto) =>
-  String(texto ?? '').replace(/[&<>"']/g, (c) =>
-    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-export const numeroBR = (valor) =>
-  String(Number(valor) || 0).replace('.', ',');
-
-export const dataBR = (data) =>
-  data ? new Date(data).toLocaleDateString('pt-BR') : '';
+// formato de numero, dinheiro e texto vive em formatos.js (sem tela nenhuma,
+// para os testes conseguirem conferir o HTML fora do navegador)
+export { dinheiro, escapar, numeroBR, dataBR } from './formatos.js';
 
 // ---------------------------------------------------------------------------
 // Sessao
@@ -112,6 +103,9 @@ export function avisar(texto, tipo = 'ok') {
 
 /** Troca de tela. */
 export function mostrarTela(nome) {
+  // a tela ativa fica marcada no <body>: é o que diz ao CSS onde a faixa de
+  // instalar pode aparecer (só na inicial - nas de trabalho ela atrapalhava)
+  document.body.dataset.tela = nome;
   $$('.tela').forEach((t) => t.classList.remove('ativa'));
   $(`#tela-${nome}`)?.classList.add('ativa');
   $$('.aba').forEach((a) => a.classList.toggle('ativa', a.dataset.tela === nome));

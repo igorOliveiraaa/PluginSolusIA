@@ -17,6 +17,8 @@ const ENDERECO = 'https://api.openai.com/v1/chat/completions';
 
 export const MODELO_PRINCIPAL_OPENAI = 'gpt-5.4-mini';
 export const MODELO_ECONOMICO_OPENAI = 'gpt-5.4-nano';
+// a mesma pergunta, a mesma resposta (tanto quanto a OpenAI consegue)
+const SEMENTE = 7;
 const RESERVAS = ['gpt-4.1-mini'];
 
 const ESPERAS_MS = [1500, 4000];
@@ -182,6 +184,10 @@ function pedidoParaOpenAI(corpo, modelo) {
   if (esforco) pedido.reasoning_effort = esforco;
   // modelo de raciocinio so aceita a temperatura padrao
   if (!ehFamiliaGpt5(modelo) && config.temperature !== undefined) pedido.temperature = config.temperature;
+  // Sem temperatura zero, a MESMA pergunta podia ter resposta diferente - no
+  // teste, o mesmo orcamento saiu 27/30 em tres rodadas e 25/30 em uma. A semente
+  // fixa deixa a IA bem mais constante (a OpenAI chama de "melhor esforco").
+  pedido.seed = SEMENTE;
 
   return pedido;
 }
@@ -293,6 +299,8 @@ export async function chamarOpenAI(corpo, opcoes = {}) {
         } else if (/max_completion_tokens/.test(parametro + mensagem) && pedido.max_completion_tokens) {
           delete semParametro.max_completion_tokens;
           semParametro.max_tokens = pedido.max_completion_tokens;
+        } else if (/seed/.test(parametro + mensagem) && 'seed' in pedido) {
+          delete semParametro.seed;
         } else {
           ultimoErro = `A IA recusou o pedido: ${mensagem}`;
           break;

@@ -242,19 +242,26 @@ $('#btn-montar').addEventListener('click', async () => {
   else if (estado.nomeLivre) dados.append('nomeCliente', estado.nomeLivre);
 
   const temFoto = estado.arquivos.length > 0;
+  const temAudio = estado.arquivos.some((a) => /^audio\//.test(a.type) || /\.(ogg|opus|m4a|mp3|wav)$/i.test(a.name));
   $('#btn-montar').disabled = true;
   const pararProgresso = mostrarProgressoNoCartao($('#montando'), {
-    titulo: 'Montando o orçamento',
+    titulo: temAudio ? 'Ouvindo o áudio e montando o orçamento' : 'Montando o orçamento',
     etapas: [
+      ...(temAudio ? ['Ouvindo o que o cliente falou'] : []),
       temFoto ? 'A IA está lendo a lista' : 'Lendo a lista',
       'Procurando cada item no catálogo',
+      'A IA conferindo se é mesmo o que ele pediu',
       'Colocando na frente o que mais sai',
       ...(estado.cliente ? ['Vendo o que esse cliente já pagou'] : []),
       'Conferindo preço e estoque',
     ],
     segundosPorEtapa: temFoto ? 4 : 1.5,
-    dicas: [
-      'Produto parado há mais de 2 anos não entra na sugestão.',
+    dicas: temAudio ? [
+      'O áudio do WhatsApp vira lista: não precisa digitar o que o cliente falou.',
+      'Depois de ouvir, mostro o texto entendido para você conferir.',
+      'Quando fico em dúvida entre dois produtos, pergunto em vez de chutar.',
+    ] : [
+      'Produto parado (sem movimento no prazo dos Ajustes) não entra na sugestão.',
       'Quando fico em dúvida entre dois produtos, pergunto em vez de chutar.',
       'Lista digitada é lida na hora e não gasta IA.',
     ],
@@ -340,7 +347,12 @@ function desenharOrcamento() {
       : ''}
     ${orc.observacoesDaLista
       ? `<div class="item-aviso info" style="margin-top:10px">Observação da leitura: ${escapar(orc.observacoesDaLista)}</div>`
-      : ''}`;
+      : ''}
+    ${orc.oQueFoiFalado ? `
+      <div class="item-aviso info" style="margin-top:10px">
+        <strong>Ouvi isto no áudio:</strong> "${escapar(orc.oQueFoiFalado)}"
+      </div>` : ''}
+    ${resumoDaIA(orc.conferenciaIA)}`;
 
   $('#btn-trocar-cliente-orcamento').addEventListener('click', () => {
     mostrarTela('orcamento');
@@ -349,7 +361,8 @@ function desenharOrcamento() {
 
   const lista = $('#itens-orcamento');
   lista.innerHTML = orc.itens
-    .map((item, indice) => desenharItemOrcamento(item, indice, podeVerCusto)).join('');
+    .map((item, indice) => desenharItemOrcamento(item, indice, podeVerCusto)).join('')
+    + blocoCostumaLevar(orc.sugestoes);
 
   // a animação de entrada roda só quando a lista aparece pela primeira vez;
   // a cada mudança de quantidade ela ficaria piscando a tela inteira
@@ -357,6 +370,42 @@ function desenharOrcamento() {
 
   ligarEventosOrcamento();
   atualizarTotal();
+}
+
+/**
+ * "Ele costuma levar também" — o que provavelmente faltou no pedido.
+ *
+ * Só entra o que JÁ ESTÁ NA HORA de repor pelo ritmo do próprio cliente: quem
+ * comprou papel toalha semana passada não vê papel toalha aqui. Quem está
+ * atrasado em relação ao ritmo dele aparece em destaque.
+ */
+function blocoCostumaLevar(sugestoes) {
+  if (!sugestoes?.length) return '';
+
+  const linhas = sugestoes.map((s) => `
+    <div class="sugestao-linha ${s.atrasado ? 'atrasada' : ''}">
+      <span>
+        <strong>${escapar(s.produto.descricao)}</strong>
+        ${s.atrasado ? '<span class="etiqueta aviso">já passou da hora</span>' : ''}
+        ${s.produto.estoque <= 0 ? '<span class="etiqueta erro">sem estoque</span>' : ''}<br>
+        <span class="ajuda">${escapar(s.motivo)}${
+          s.detalhe ? `<br><em>${escapar(s.detalhe)}</em>` : ''}</span>
+      </span>
+      <span style="text-align:right">${dinheiro(s.produto.vendaAtual)}</span>
+      <button class="botao secundario" data-sugestao="${escapar(s.produto.codigo)}">
+        Adicionar
+      </button>
+    </div>`).join('');
+
+  return `
+    <div class="cartao sugestoes-cartao">
+      <h3 style="margin:0 0 4px">Esse cliente costuma levar também</h3>
+      <p class="ajuda" style="margin:0 0 10px">
+        Pelo ritmo de compra dele — só o que já está na hora de repor.
+        O que ele comprou há pouco não aparece aqui.
+      </p>
+      ${linhas}
+    </div>`;
 }
 
 /** Um quadradinho de comparacao (rotulo, valor e a explicacao embaixo). */
@@ -370,12 +419,51 @@ function bloco(titulo, valor, detalhe = '', classe = '') {
 }
 
 /**
+ * O que a IA fez com a lista, em uma linha.
+ * Quando ela não pôde ajudar (sem crédito, sem chave, erro), a pessoa precisa
+ * saber: a comparação foi só por texto, e é aí que passa tamanho errado.
+ */
+function resumoDaIA(conferencia) {
+  if (!conferencia) return '';
+  if (conferencia.falhou) {
+    return `<div class="item-aviso" style="margin-top:10px">
+      <strong>A IA não conseguiu conferir a lista</strong>
+      (${escapar(conferencia.motivo || 'erro')}). As opções abaixo vieram só da busca por
+      texto — confira tamanho e marca item a item.
+    </div>`;
+  }
+  if (!conferencia.usou) return '';
+
+  const feitos = [
+    conferencia.resolvidos ? `<strong>${conferencia.resolvidos}</strong> ${conferencia.resolvidos === 1 ? 'item que estava em dúvida foi resolvido' : 'itens que estavam em dúvida foram resolvidos'}` : '',
+    conferencia.trocados ? `<strong>${conferencia.trocados}</strong> ${conferencia.trocados === 1 ? 'produto foi trocado' : 'produtos foram trocados'} (não era o que o cliente pediu)` : '',
+    conferencia.achadosPorOutroNome ? `<strong>${conferencia.achadosPorOutroNome}</strong> ${conferencia.achadosPorOutroNome === 1 ? 'item foi achado' : 'itens foram achados'} procurando por outro nome` : '',
+  ].filter(Boolean);
+
+  if (!feitos.length) return '';
+  return `<div class="item-aviso info" style="margin-top:10px">
+    <strong>A IA conferiu a lista:</strong> ${feitos.join(' · ')}.
+    Tudo continua editável — troque o que não estiver certo.
+  </div>`;
+}
+
+/**
  * Etiquetas que explicam por que a opcao apareceu.
  * E o que torna a escolha rapida: em vez de ler seis nomes parecidos, a pessoa
  * ve "é o que mais sai" e "esse cliente já levou".
  */
 function etiquetasDaOpcao(produto, posicao) {
   const etiquetas = [];
+  // o parecer da IA vem primeiro: é o que resolve a escolha em 1 segundo
+  if (produto.relacaoIA === 'mesmo') {
+    etiquetas.push(`<span class="etiqueta ok">IA: é o que ele pediu${
+      produto.motivoIA ? ' — ' + escapar(produto.motivoIA) : ''}</span>`);
+  } else if (produto.relacaoIA === 'variacao') {
+    etiquetas.push(`<span class="etiqueta aviso">IA: ${
+      escapar(produto.motivoIA || 'parecido, mas outro')}</span>`);
+  } else if (produto.relacaoIA === 'outro') {
+    etiquetas.push('<span class="etiqueta erro">IA: não é isso</span>');
+  }
   if (produto.doCliente) {
     const quando = produto.doCliente.ultima ? new Date(produto.doCliente.ultima).toLocaleDateString('pt-BR') : '';
     etiquetas.push(`<span class="etiqueta ok">o cliente levou ${produto.doCliente.vezes}x${quando ? ' · última ' + quando : ''}</span>`);
@@ -414,7 +502,8 @@ function desenharItemOrcamento(item, indice, podeVerCusto) {
             ${etiquetasDaOpcao(p, posicao)}
             <span class="ajuda">${dinheiro(p.vendaAtual)} · estoque ${numeroBR(p.estoque)}</span>
           </button>`).join('')
-      : '<p class="ajuda">Não achei nada parecido no estoque. Use "Procurar outro".</p>';
+      : `<p class="ajuda">Não achei nada parecido no estoque${
+          item.conferidoPelaIA ? ', nem procurando por outros nomes' : ''}. Use "Procurar outro".</p>`;
 
     return `
       <div class="${classe}" data-indice="${indice}">
@@ -429,7 +518,20 @@ function desenharItemOrcamento(item, indice, podeVerCusto) {
           <span class="etiqueta aviso">escolha o produto</span>
         </div>
         ${avisos}
-        <div class="escolha-titulo">Qual desses é?</div>
+        ${item.nomeQueAIAsugeriu ? `
+          <div class="item-aviso info">
+            Não achei com esse nome, então procurei também por
+            "<strong>${escapar(item.nomeQueAIAsugeriu)}</strong>".
+          </div>` : ''}
+        <div class="escolha-titulo">${(() => {
+          // com a IA, dá para dizer QUANTAS servem de verdade: a escolha vira
+          // só "qual marca", não "qual desses seis é o produto"
+          // "serve" vem pronto do servidor (a mesma conta que decide lá)
+          const servem = (item.opcoes || []).filter((o) => o.serve).length;
+          if (servem > 1) return `${servem} destes servem — qual você quer?`;
+          if (servem === 1) return 'Só um destes é o que ele pediu — confirme:';
+          return 'Qual desses é?';
+        })()}</div>
         <div class="opcoes-produto">${opcoes}</div>
         <div class="item-acoes">
           <button class="botao secundario" data-procurar="${indice}">Procurar outro</button>
@@ -486,7 +588,20 @@ function desenharItemOrcamento(item, indice, podeVerCusto) {
             ${item.comoAchou ? ' · ' + escapar(item.comoAchou) : ''}
           </div>
         </div>
+        ${item.escolhidoPelaIA ? '<span class="etiqueta ok">escolhido pela IA</span>' : ''}
       </div>
+      ${item.duvidaDaIA ? `
+        <div class="item-aviso">
+          <strong>Confira este:</strong> a IA achou que não é bem o que ele pediu
+          (${escapar(item.duvidaDaIA)}), mas <strong>este cliente já comprou este produto</strong>,
+          então mantive. Use "Trocar produto" se não for.
+        </div>` : ''}
+      ${item.trocadoPelaIA?.para ? `
+        <div class="item-aviso info">
+          <strong>Troquei o produto:</strong> o texto tinha achado
+          "${escapar(item.trocadoPelaIA.de)}", mas a IA viu que não é
+          (${escapar(item.trocadoPelaIA.motivo)}). Se não for este, use "Trocar produto".
+        </div>` : ''}
       ${avisos}
 
       <div class="comparacao">${blocos.join('')}</div>
@@ -519,9 +634,39 @@ function desenharItemOrcamento(item, indice, podeVerCusto) {
 }
 
 function ligarEventosOrcamento() {
+  // SÓ dentro da lista do orçamento: a nota também tem [data-qtd] e [data-preco]
+  // (e a busca de produto da nota tem [data-escolher]). Procurando na página
+  // inteira, mexer num lugar alterava o outro sem ninguém ver.
+  const lista = $('#itens-orcamento');
+  const $$ = (seletor) => (lista ? [...lista.querySelectorAll(seletor)] : []);
+
   $$('[data-escolher]').forEach((botao) => {
     botao.addEventListener('click', () =>
       escolherProduto(Number(botao.dataset.escolher), botao.dataset.codigo));
+  });
+
+  // "costuma levar também": entra na lista como qualquer item adicionado na mão
+  $$('[data-sugestao]').forEach((botao) => {
+    botao.addEventListener('click', async () => {
+      const codigo = botao.dataset.sugestao;
+      botao.disabled = true;
+      try {
+        const { orcamento, resumo } = await api('/api/orcamento/adicionar', {
+          method: 'POST',
+          body: JSON.stringify({ id: estado.id, codigoProduto: codigo, quantidade: 1 }),
+        });
+        estado.orcamento = orcamento;
+        estado.orcamento.resumo = resumo;
+        // some da sugestão o que acabou de entrar na lista
+        estado.orcamento.sugestoes = (orcamento.sugestoes || estado.orcamento.sugestoes || [])
+          .filter((s) => s.produto.codigo !== codigo);
+        desenharOrcamento();
+        avisar('Adicionado ao orçamento.', 'ok');
+      } catch (erro) {
+        avisar(erro.message, 'erro');
+        botao.disabled = false;
+      }
+    });
   });
 
   $$('[data-qtd]').forEach((campo) => {
