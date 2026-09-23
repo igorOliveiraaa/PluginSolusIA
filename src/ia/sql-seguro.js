@@ -12,7 +12,7 @@
 //   - limite de linhas obrigatorio;
 //   - se demorar demais, a consulta e abandonada.
 
-import { consultar } from '../db/firebird.js';
+import { consultar, lerTexto } from '../db/firebird.js';
 
 const TETO_LINHAS = 200;
 const TEMPO_MAXIMO = 20000;     // 20 segundos
@@ -140,6 +140,22 @@ export async function consultaLivre({ sql, explicacao = '' }, contexto = {}) {
 
   try {
     const linhas = await Promise.race([corrida, relogio]);
+
+    // Coluna de texto lida SEM o CAST ... OCTETS: o acento já chega quebrado
+    // ("SAB�O") e não tem mais como consertar. Em vez de mostrar letra
+    // estranha na tela, a consulta volta para a IA refazer com o CAST.
+    const textoQuebrado = linhas.some((linha) => Object.values(linha)
+      .some((valor) => typeof valor === 'string' && valor.includes('�')));
+    if (textoQuebrado) {
+      return {
+        ok: false,
+        erro: 'O texto veio com acento quebrado porque faltou converter as colunas de texto. '
+          + 'Refaca a consulta usando CAST(coluna AS VARCHAR(n) CHARACTER SET OCTETS) '
+          + 'em cada coluna de texto (nomes, descricoes, cidades).',
+        sqlUsado: revista.sql,
+      };
+    }
+
     return {
       ok: true,
       explicacao,
@@ -155,13 +171,17 @@ export async function consultaLivre({ sql, explicacao = '' }, contexto = {}) {
   }
 }
 
-/** Deixa a linha pronta para a IA ler: texto com acento certo e sem espaco sobrando. */
+/**
+ * Deixa a linha pronta para a IA ler: texto com acento certo e sem espaco sobrando.
+ * Usa a MESMA leitura do resto do Plugin (lerTexto): ela reconhece o texto que o
+ * ACBr grava em UTF-8. Aqui havia uma leitura propria, so Windows-1252, e a
+ * rejeicao da Sefaz voltava "RejeiÃ§Ã£o" quando perguntada pelo chat.
+ */
 function limparLinha(linha) {
-  const decodificador = new TextDecoder('windows-1252');
   const saida = {};
   for (const [campo, valor] of Object.entries(linha)) {
     if (Buffer.isBuffer(valor)) {
-      saida[campo] = decodificador.decode(valor).trim();
+      saida[campo] = lerTexto(valor);
     } else if (typeof valor === 'string') {
       saida[campo] = valor.trim();
     } else if (valor instanceof Date) {

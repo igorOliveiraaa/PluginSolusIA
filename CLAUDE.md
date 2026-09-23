@@ -113,6 +113,8 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 | `web/efeitos.js` | A onda no clique e os movimentos gerais |
 | `web/aviso-ia.js` | Faixa de "acabou o crédito da IA" |
 | `src/ferramentas/` | Scripts de teste (`varredura.mjs` caça bugs no codigo; `gerar-icones.mjs` refaz os icones) |
+| `src/ferramentas/navegador.mjs` | Dirige o Chrome/Edge do PC em modo invisível (clica como gente, pega erro do console) |
+| `src/ferramentas/t-navegador.mjs` | A revisão completa NA TELA: login, nota, histórico, orçamento, tarefas, ajustes, chat, celular (89 conferências). Rodar com `PLUGIN_HOJE=2025-08-22 npm start` |
 | `src/ferramentas/credenciais-de-teste.mjs` | Usuário/senha dos testes — vem de `dados/teste.json`, nunca do código |
 
 ## O que aprendi do banco do Solus (importante, custou trabalho descobrir)
@@ -649,6 +651,43 @@ Tudo abaixo foi **testado de ponta a ponta** numa cópia do banco real da loja
 - No Solus, exportar o XML exige ir a outra tela depois de gerar a nota. Na aba
   **Tarefas** agora tem **Baixar XML** ao lado de "Ver a nota" — sai direto da
   pasta onde o ACBr já salvou (precisa da pasta cadastrada em Ajustes).
+
+### 19. Revisão completa no navegador (23/09/2026)
+O `t-navegador.mjs` usa o Plugin como o balcão usa, num Chrome invisível, e acha o que
+teste de servidor não vê. O que ele pegou (tudo corrigido e provado):
+- **A faixa "Instale o Plugin" tapava o botão "Gravar no Solus"** da nota e a caixa de
+  pergunta do chat. Agora ela ocupa o próprio espaço: topo da tela inicial e dentro da
+  caixa de login; some das telas de trabalho (`mostrarTela` marca `body[data-tela]`).
+- **Mudar a quantidade no orçamento mexia no item de mesmo número da NOTA aberta** (e
+  vice-versa): as duas telas ligavam `[data-qtd]`/`[data-preco]` da página inteira.
+  Agora cada uma liga só dentro da própria lista (`ligarEventosDosItens`,
+  `ligarEventosOrcamento`).
+- **"qboa 1 litro" virava QUEROSENE 1L escolhido pela IA**: a busca não ligava "qboa" a
+  "Q.BOA" (o catálogo agora guarda a forma junta A MAIS: `palavrasJuntas`), e a IA
+  escolhia entre opções fracas (só a medida batia). Opção com menos de 60% de casamento
+  nunca é escolhida sozinha e dispara a busca por outro nome.
+- **A IA oscilava** (sem temperatura zero): o mesmo orçamento saía diferente de uma vez
+  para outra. Três travas: semente fixa na OpenAI (`seed`), cada par (pedido, produto)
+  é julgado UMA vez e o parecer fica lembrado 12h (`classificarParecidos`), e cadastro
+  que casa o pedido INTEIRO pelo texto serve, a não ser que a IA diga "outro tipo"
+  (`serveAoPedido`). Resultado: `t-preco-do-cliente` 30/30 · 27/30 · 30/30 estável.
+- Rejeição da Sefaz vinha **sem número** e com acento embolado (o ACBr grava UTF-8 num
+  banco Windows-1252): `lerTexto` reconhece UTF-8 (0 nomes de produto/cliente mudaram,
+  5 mensagens da Sefaz consertadas) e a tabela da Sefaz entende o texto real.
+- **Letra estranha em qualquer lugar** ("RejeiÃ§Ã£o", "SAB?O"): `t-acentos-banco.mjs`
+  passa pelas 2.486 colunas de texto do banco e confere que nada sai embolado depois da
+  leitura (0 hoje). A consulta livre do chat tinha uma leitura própria, antiga — agora
+  usa `lerTexto`; e SQL da IA que esquece o `CAST ... OCTETS` (acento já quebrado, sem
+  conserto) volta para ela refazer em vez de mostrar "SAB?O". Os `.bat`/`.vbs` não têm
+  acento de propósito (a janela preta do Windows embolaria).
+- Logo inexistente respondia 404 (erro vermelho no console a cada abertura) → 204.
+- Mais rápido: orçamento de 20 itens de 13,7s para ~9s (3s com pareceres lembrados).
+- `PLUGIN_HOJE=AAAA-MM-DD` fixa o "hoje" do "costuma levar" para testar com a cópia
+  antiga do banco. Na loja não se usa.
+- Dois testes são **intermitentes** por depender da IA/rede, não de erro: o
+  "orçamento de 20 itens em menos de 10s" (às vezes 10,5s) e, raramente, um item do
+  `t-preco-do-cliente`. `t-relatorio-chat` pede "últimos 60 dias", e a cópia do banco
+  parou em 22/08/2025: sem venda nesse período (na loja funciona).
 
 ### Pendente
 - **Primeiro teste na loja (21-22/09/2026)**: a nota entrou, mas os produtos novos não
