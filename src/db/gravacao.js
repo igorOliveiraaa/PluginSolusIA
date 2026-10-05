@@ -493,6 +493,20 @@ async function criarProduto(executar, colunas, item, camposFiscais = [], opcoes 
     ESTOQUEATUAL: paraTextoBR(quantidade, 2),
     ESTOQUETOTAL: paraTextoBR(quantidade, 2),
     ESTOQUEMINIMO: '0,00',
+    // o resto que o Solus SEMPRE preenche num produto (conferido em 594 cadastros
+    // dele). Numero em texto vazio faz a tela de produto do Solus parar com
+    // "'' is not a valid floating point value".
+    GRUPOPRINCIPAL: item.grupo ? String(item.grupo) : '1',
+    ESTOQUEATUALR: '0,00',
+    ISS: '0,00',
+    IPI: '0,00',
+    CST: '0,00',
+    CFRETE: '0,00',
+    MARGEM1: '0',
+    TRIBORIGEM: '0',
+    CLASSIFICA: 'V',
+    COMPO: 'N',
+    KIT: 'N',
     // CST 102, IBS/CBS 000, classificacao 000001, acessa valores S, baixa estoque S:
     // sem isso o produto novo nao sai em nota de venda
     ...padroesParaProdutoNovo(camposFiscais),

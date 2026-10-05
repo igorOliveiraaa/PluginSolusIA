@@ -1,0 +1,447 @@
+[
+  {
+    "item": "1. senha errada mostra aviso e não entra",
+    "ok": true,
+    "detalhe": "Senha incorreta. O Plugin esta usando o Solus de Loja principal. Se nao for esse, no PC servidor toque em \"Configurar lojas\"."
+  },
+  {
+    "item": "1. senha certa entra",
+    "ok": true,
+    "detalhe": "ELAINE · Loja principal"
+  },
+  {
+    "item": "A. Entrar: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "9. XML virou conferência",
+    "ok": true,
+    "detalhe": "4 itens"
+  },
+  {
+    "item": "10. itens com cadastros parecidos na tela",
+    "ok": true,
+    "detalhe": "3 itens com a lista"
+  },
+  {
+    "item": "10. parecer da IA aparece nos parecidos",
+    "ok": true,
+    "detalhe": "13 etiquetas \"IA:\""
+  },
+  {
+    "item": "14. produto novo tem o campo do nome",
+    "ok": true,
+    "detalhe": "1 campo(s)"
+  },
+  {
+    "item": "14. nome do produto novo preenchido",
+    "ok": true,
+    "detalhe": "ESPONJA MULTIUSO TESTE PACOTE C/ 4"
+  },
+  {
+    "item": "C. Nota: ler o XML e conferir: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "13. marcar \"desativar\" num parecido",
+    "ok": true,
+    "detalhe": "1 marcado(s)"
+  },
+  {
+    "item": "13. botão de desativar em massa (só aparece com parecer \"mesmo\" da IA)",
+    "ok": true,
+    "detalhe": "a IA não achou repetido idêntico neste item"
+  },
+  {
+    "item": "13. o mesmo cadastro em outro item fica travado (\"marcado no item N\")",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "11. \"Vincular a este\" troca o produto do item",
+    "ok": true,
+    "detalhe": "item 2 -> cód. 11791"
+  },
+  {
+    "item": "11. depois de vincular, o parecer da IA continua na tela",
+    "ok": true,
+    "detalhe": "1 etiquetas"
+  },
+  {
+    "item": "12. \"Cadastrar como novo\" vira produto novo",
+    "ok": true,
+    "detalhe": "item 3"
+  },
+  {
+    "item": "12. o cadastro de antes vira o 1º parecido (para desativar)",
+    "ok": true,
+    "detalhe": "AVENTAL ERA O VINCULADO ANTES ESTOQUE NEGATIVO"
+  },
+  {
+    "item": "16. editar a quantidade de um item da nota",
+    "ok": true,
+    "detalhe": "60 -> 61"
+  },
+  {
+    "item": "C. Nota: vincular, desativar e cadastrar novo: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "15. \"não entrar\" marca o item",
+    "ok": true,
+    "detalhe": "item 4"
+  },
+  {
+    "item": "17. confirmação antes de gravar",
+    "ok": true,
+    "detalhe": "Gravar 3 itens no Solus?"
+  },
+  {
+    "item": "17. a confirmação lista os NOMES do que vai ser desativado",
+    "ok": true,
+    "detalhe": "   - SABÃO EM PEDRA YPE 5 X 180 GR (estoque -16)"
+  },
+  {
+    "item": "17. gravou no Solus",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "17. o lançamento entrou no histórico",
+    "ok": true,
+    "detalhe": "20261005125147-rvbs"
+  },
+  {
+    "item": "17. avisa quantos itens não entraram",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "18. etiquetas: abre a escolha do que imprimir",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "C. Nota: gravar e conferir o resultado: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "21. \"Ver o que foi feito\" abre item a item",
+    "ok": true,
+    "detalhe": "5 linhas"
+  },
+  {
+    "item": "21. mostra o produto cadastrado novo",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "21. mostra o que não entrou",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "21. mostra o que foi desativado",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "21. sem \"undefined\" nem \"NaN\" na tela",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "21. segundo clique fecha o detalhe",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "D. Histórico: ver o que foi feito e desfazer: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "19. mesma nota de novo: avisa que já foi lançada",
+    "ok": true,
+    "detalhe": "Atenção: essa nota já foi lançada em 05/10/2026, 09:51:47. Se gravar de novo, o estoque vai somar duas vezes."
+  },
+  {
+    "item": "22. gravar com tudo \"não entrar\" é barrado",
+    "ok": true,
+    "detalhe": "servidor recusou"
+  },
+  {
+    "item": "C. Nota repetida e tentativa com erro: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "22. tentativa com erro aparece no histórico",
+    "ok": true,
+    "detalhe": "9 em vermelho"
+  },
+  {
+    "item": "23. desfazer marca como desfeita",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "D. Desfazer o lançamento: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "23. o banco voltou ao que era depois de desfazer",
+    "ok": true,
+    "detalhe": "produtos 12275 -> 12275 · desativados 0 -> 0"
+  },
+  {
+    "item": "28. escolher o cliente",
+    "ok": true,
+    "detalhe": "ALFER PRESTADORA DE SERVICOS LTDA"
+  },
+  {
+    "item": "24. lista digitada vira itens",
+    "ok": true,
+    "detalhe": "4 itens"
+  },
+  {
+    "item": "25. a IA conferiu as opções (etiquetas na tela)",
+    "ok": true,
+    "detalhe": "6 etiquetas"
+  },
+  {
+    "item": "25. o topo conta o que a IA fez (ou avisa se falhou)",
+    "ok": true,
+    "detalhe": "A IA conferiu a lista: 1 item que estava em dúvida foi resolvido. Tudo continua editável — troque o que não estiver certo."
+  },
+  {
+    "item": "26. \"qboa\" achado como água sanitária",
+    "ok": true,
+    "detalhe": "AGUA SANITARIA 1L Q.BOA / pedido como \"3 qboa 1 litro\" · a IA viu que é este / ESCOLHIDO PELA IA"
+  },
+  {
+    "item": "28. \"costuma levar também\" aparece para cliente frequente",
+    "ok": true,
+    "detalhe": "1 sugestões"
+  },
+  {
+    "item": "E. Orçamento: cliente e lista digitada: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "28. \"Adicionar\" põe a sugestão na lista e tira ela das sugestões",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "29. escolher o produto de um item em dúvida",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "29. mudar a quantidade recalcula o total",
+    "ok": true,
+    "detalhe": "Total do orçamento R$ 635,85 -> Total do orçamento R$ 578,25"
+  },
+  {
+    "item": "E. Orçamento: mexer nos itens: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "30. botão do PDF funciona sem erro",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "30. botão do Excel funciona sem erro",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "31. o botão \"Gravar no Solus\" está à vista (nada por cima)",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "31. gravou o orçamento no Solus",
+    "ok": true,
+    "detalhe": "Orçamento nº 156390 gravado no Solus."
+  },
+  {
+    "item": "E. Orçamento: PDF, Excel e gravar: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "34. a lista de tarefas abre",
+    "ok": true,
+    "detalhe": "9 linhas"
+  },
+  {
+    "item": "34. o orçamento gravado virou tarefa (\"enviar\"/\"finalizar\")",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "35. \"Já resolvi\" tira a tarefa da lista",
+    "ok": true,
+    "detalhe": "enviar-orcamento-156390"
+  },
+  {
+    "item": "G. Tarefas: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "31. orçamento de teste apagado do Solus",
+    "ok": true,
+    "detalhe": "nº 156390"
+  },
+  {
+    "item": "37. ajustes carregam os valores",
+    "ok": true,
+    "detalhe": "parado: 12 meses"
+  },
+  {
+    "item": "39. caixinha \"IA confere os parecidos\" marcada",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "38. mudar o prazo salva e reconta",
+    "ok": true,
+    "detalhe": "2 anos: 4.495 produtos parados há mais de 2 anos · 1 ano: 5.616 produtos parados há mais de 1 ano "
+  },
+  {
+    "item": "38. \"Ver a lista\" mostra os parados",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "41. testar banco",
+    "ok": true,
+    "detalhe": "Conectou! 12275 produtos no banco."
+  },
+  {
+    "item": "40. salvar ajustes funciona e não muda o que ninguém mexeu",
+    "ok": true,
+    "detalhe": "regras iguais"
+  },
+  {
+    "item": "46. situação do crédito da IA responde",
+    "ok": true,
+    "detalhe": "{\"ok\":true,\"provedor\":\"openai\",\"creditoAcabou\":false,\"desde\":null,\"mensagem\":\"\"}"
+  },
+  {
+    "item": "H. Ajustes: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "4. pergunta responde com número",
+    "ok": true,
+    "detalhe": "Tem 50 produtos com estoque negativo.\n\nSe quiser, eu posso te listar os mais críticos ou f"
+  },
+  {
+    "item": "6. \"Planilha\" do resultado funciona sem erro",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "5. continuação entende o assunto anterior",
+    "ok": true,
+    "detalhe": "Os 3 primeiros com estoque negativo são:\n\n1. 9521 — ESPONJA DUPLA FACE ESPONFLORA — -1751\n"
+  },
+  {
+    "item": "7. \"Nova conversa\" à vista",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "7. \"Nova conversa\" limpa",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "B. Perguntar: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "32. consulta de CNPJ responde (dados ou aviso claro)",
+    "ok": true,
+    "detalhe": "CNPJ / Buscar dados"
+  },
+  {
+    "item": "F. Cliente por CNPJ: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "3. \"Sair\" volta para a tela de login",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "43. faixa de instalar não fica por cima de nada no login",
+    "ok": true,
+    "detalhe": "dentro da caixa de login"
+  },
+  {
+    "item": "3. botão \"Entrar\" à vista depois de sair",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "A. Sair: nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "44. assistente: sem rolagem para o lado",
+    "ok": true,
+    "detalhe": "sobra 0px"
+  },
+  {
+    "item": "44. enviar: sem rolagem para o lado",
+    "ok": true,
+    "detalhe": "sobra 0px"
+  },
+  {
+    "item": "44. orcamento: sem rolagem para o lado",
+    "ok": true,
+    "detalhe": "sobra 0px"
+  },
+  {
+    "item": "44. tarefas: sem rolagem para o lado",
+    "ok": true,
+    "detalhe": "sobra 0px"
+  },
+  {
+    "item": "44. historico: sem rolagem para o lado",
+    "ok": true,
+    "detalhe": "sobra 0px"
+  },
+  {
+    "item": "44. config: sem rolagem para o lado",
+    "ok": true,
+    "detalhe": "sobra 0px"
+  },
+  {
+    "item": "44. celular: caixa de pergunta à vista",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "I. Celular (390px): nenhum erro no console do navegador",
+    "ok": true,
+    "detalhe": ""
+  }
+]

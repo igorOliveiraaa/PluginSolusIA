@@ -116,6 +116,8 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 | `src/ferramentas/navegador.mjs` | Dirige o Chrome/Edge do PC em modo invisível (clica como gente, pega erro do console) |
 | `src/ferramentas/t-navegador.mjs` | A revisão completa NA TELA: login, nota, histórico, orçamento, tarefas, ajustes, chat, celular (89 conferências). Rodar com `PLUGIN_HOJE=2025-08-22 npm start` |
 | `src/ferramentas/credenciais-de-teste.mjs` | Usuário/senha dos testes — vem de `dados/teste.json`, nunca do código |
+| `src/ferramentas/t-orcamento-no-solus.mjs` | Grava orçamento e compara campo a campo com os 595 que o próprio Solus gravou |
+| `src/ferramentas/t-cadastros-no-solus.mjs` | O mesmo para produto novo (nota) e cliente novo (CNPJ) |
 
 ## O que aprendi do banco do Solus (importante, custou trabalho descobrir)
 
@@ -185,6 +187,20 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 - **A loja vende alguns produtos FECHADOS**: saco de lixo C/100 é `PCT`, guardanapo C/72
   é `CX`, papel higiênico é `FD`. A unidade do produto no Solus decide se a caixa da nota
   é separada em unidades ou não.
+- **Gravar por fora = gravar IGUAL ao Solus.** O Delphi lê muito campo de texto como
+  número; campo NULL onde ele sempre põe `"0,00"` faz a tela dele parar com
+  *"'' is not a valid floating point value"* (o "erro point" da loja). O jeito de
+  descobrir o que preencher é comparar com as linhas que o próprio Solus gravou
+  (`t-orcamento-no-solus.mjs` e `t-cadastros-no-solus.mjs` fazem isso sozinhos).
+- Orçamento do Solus: `EMISSAO`, `DTDIGITA`, `DTENTREGA` e `ITEMPEDIDO.DATA` **sem hora**
+  (meia-noite); `DATAVENDA` com hora. Endereço do cliente copiado para o pedido.
+  Sem cliente = cadastro **CONSUMIDOR** (código 1, CPF 000.000.000-00), nunca código vazio.
+  `ENTREGA`/`VALIDADE` o Solus nunca usa (vazios em 20 mil pedidos).
+- Item com `TRIBUTARIA 500` (ST) vai com CFOP **5405** (6403 fora do estado); o resto com
+  `PARAMETRO.CFOP` (5102) / `CFOPINTER` (6102). `PARAMETRO.VENDEDOR` é o vendedor padrão.
+- `PEDIDOS.CUSTOVENDA` = `"-00-custo-00-lucro-00-margem%"` com PONTO decimal.
+- `PEDIDOS` não tem chave única: número repetido entra sem erro nenhum.
+- `CLIENTES.TIPOCLIENTE` = JURIDICA/FISICA. `CLIENTES.TIPO` é outra coisa ("", "FINAL", "MEI").
 
 ## A IA: hoje e o ChatGPT (OpenAI)
 
@@ -689,7 +705,24 @@ teste de servidor não vê. O que ele pegou (tudo corrigido e provado):
   `t-preco-do-cliente`. `t-relatorio-chat` pede "últimos 60 dias", e a cópia do banco
   parou em 22/08/2025: sem venda nesse período (na loja funciona).
 
+### 20. Orçamento que abre no Solus (05/10/2026)
+A loja avisou: o orçamento gravava, mas o Solus dava "erro point" ao abrir e mostrava
+outra data. Causa: ~40 campos que o Solus sempre preenche ficavam vazios, e a data ia
+com hora. `db/orcamento.js` agora grava como o Solus (provado em `t-orcamento-no-solus`
+contra os 595 orçamentos dele, e pela tela no `t-navegador`: 89/89). Junto foram:
+- forma de pagamento " DINHEIRO" ia sem o espaço (nome que não existe na CONDICAO);
+- sem cliente ia código vazio → agora o cadastro CONSUMIDOR;
+- barras com pontos ("02.01.06.0076") ia só com os dígitos → produto não achado;
+- quantidade 1000 virava "1000,00" (o campo tem 6 letras) e o orçamento era recusado;
+- produto com ST (500) ia com CFOP 5102 → agora 5405, como o Solus faz;
+- número de pedido repetido (PEDIDOS não tem chave única) agora é pulado;
+- o prazo de entrega vai na observação (o campo ENTREGA o Solus não usa).
+Mesmo problema corrigido no **produto novo** da nota (ISS, IPI, TRIBORIGEM... vazios) e
+no **cliente novo** do CNPJ (LIMITE vazio, e JURIDICA/FISICA ia no campo errado).
+
 ### Pendente
+- **Na loja: gravar um orçamento e abrir no Solus** para confirmar o conserto. Os
+  orçamentos gravados ANTES do conserto continuam sem abrir (refazer ou apagar).
 - **Primeiro teste na loja (21-22/09/2026)**: a nota entrou, mas os produtos novos não
   foram cadastrados e os repetidos não apareceram para escolher. Corrigido aqui
   (parecidos em todo item, "Cadastrar como novo", histórico detalhado, prazo de parado

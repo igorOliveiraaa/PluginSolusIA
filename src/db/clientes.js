@@ -166,7 +166,14 @@ export async function cadastrarCliente(dados, operador = '') {
       CELULAR: String(dados.celular || '').slice(0, 15),
       EMAIL: String(dados.email || '').slice(0, 60),
       CONTATO: gravarTexto(String(dados.contato || '').slice(0, 20)),
-      TIPO: numeros.length === 14 ? 'JURIDICA' : 'FISICA',
+      // fisica/juridica fica em TIPOCLIENTE. TIPO e outra coisa no Solus ("FINAL",
+      // "MEI" ou vazio): gravar JURIDICA ali deixava o cliente sem tipo nenhum
+      TIPOCLIENTE: numeros.length === 14 ? 'JURIDICA' : 'FISICA',
+      TIPO: '',
+      // numero em texto que o Solus sempre preenche: vazio, a tela de cliente dele
+      // para com "'' is not a valid floating point value"
+      LIMITE: '0,00',
+      DESCONTOCOMERCIAL: '0,00',
       DTABERTURA: hoje(),
       USUABERTURA: String(operador || '').slice(0, 20),
     };
