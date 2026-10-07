@@ -35,6 +35,9 @@ import { rotasAssistente } from './rotas-assistente.js';
 import { rotasVendas } from './rotas-vendas.js';
 import { rotasLojas } from './rotas-lojas.js';
 import { rotasFornecedor } from './rotas-fornecedor.js';
+import { rotasSefaz, buscarNotasDeHoraEmHora } from './rotas-sefaz.js';
+import { guardarRascunho, lerRascunho, apagarRascunho } from './rascunhos.js';
+import { rotasAfazeres } from './rotas-afazeres.js';
 import { exec } from 'node:child_process';
 import { lojaAtualId } from './loja-atual.js';
 import { exigirLogin, exigirPermissao } from './db/operadores.js';
@@ -144,6 +147,11 @@ app.post('/api/ler-nota', exigirLogin, upload.array('arquivos', 10), async (req,
     const conferencia = await montarConferencia(nota, ajustes);
     const id = guardarConferencia(conferencia);
 
+    // 6) essa nota ja tinha sido comecada e ficou no meio? A tela pergunta se quer
+    // continuar. Se nao tinha, esta passa a ser guardada (aparece "em conferencia").
+    const comecada = lerRascunho(conferencia.chave);
+    if (!comecada) guardarRascunho({ conferencia, operador: req.operador?.nome });
+
     res.json({
       ok: true,
       id,
@@ -151,10 +159,61 @@ app.post('/api/ler-nota', exigirLogin, upload.array('arquivos', 10), async (req,
       jaAplicada: repetida
         ? { id: repetida.id, quando: repetida.quando, operador: repetida.operador }
         : null,
+      rascunho: comecada
+        ? { chave: comecada.chave, comecadoEm: comecada.comecadoEm, atualizadoEm: comecada.atualizadoEm, operador: comecada.operador }
+        : null,
     });
   } catch (erro) {
     responderErro(res, erro);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Conferencia que ficou no meio (src/rascunhos.js)
+// ---------------------------------------------------------------------------
+
+/** A tela manda o que ja foi decidido; o servidor guarda junto com a conferencia. */
+app.post('/api/rascunho', exigirLogin, exigirPermissao('mexerProduto'), (req, res) => {
+  try {
+    const guardada = conferenciasAbertas.get(req.body?.id);
+    if (!guardada || guardada.lojaId !== lojaAtualId()) throw new Error('Essa conferencia nao esta mais aberta.');
+    const salvo = guardarRascunho({
+      conferencia: guardada.dados, decisoes: req.body.decisoes, operador: req.operador?.nome,
+    });
+    res.json({ ok: true, salvo: Boolean(salvo) });
+  } catch (erro) {
+    responderErro(res, erro);
+  }
+});
+
+/** Continuar de onde parou: a conferencia guardada volta a ficar aberta. */
+app.post('/api/rascunho/:chave/abrir', exigirLogin, exigirPermissao('mexerProduto'), (req, res) => {
+  try {
+    const rascunho = lerRascunho(req.params.chave);
+    if (!rascunho) throw new Error('Nao achei a conferencia guardada dessa nota (pode ter passado de 30 dias).');
+    const conferencia = rascunho.conferencia;
+    const id = guardarConferencia(conferencia);
+    const repetida = notaJaAplicada({
+      chave: conferencia.chave, numero: conferencia.numero, cnpjFornecedor: conferencia.fornecedor?.cnpj,
+    });
+    res.json({
+      ok: true,
+      id,
+      conferencia,
+      decisoes: rascunho.decisoes,
+      comecadoEm: rascunho.comecadoEm,
+      atualizadoEm: rascunho.atualizadoEm,
+      jaAplicada: repetida ? { id: repetida.id, quando: repetida.quando, operador: repetida.operador } : null,
+    });
+  } catch (erro) {
+    responderErro(res, erro);
+  }
+});
+
+/** Recomecar do zero: esquece a conferencia guardada. */
+app.delete('/api/rascunho/:chave', exigirLogin, exigirPermissao('mexerProduto'), (req, res) => {
+  apagarRascunho(req.params.chave);
+  res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -417,6 +476,7 @@ app.post('/api/aplicar', exigirLogin, exigirPermissao('mexerProduto'), async (re
     });
 
     conferenciasAbertas.delete(id);
+    apagarRascunho(conferencia.chave);        // gravou: nao ha mais o que continuar
 
     res.json({ ok: true, historico: historico.id, registros, resumo: historico.resumo });
   } catch (erro) {
@@ -736,6 +796,10 @@ app.get('/api/modelos-ia', exigirLogin, async (req, res) => {
 app.use(rotasOrcamento);
 app.use(rotasAssistente);
 app.use(rotasVendas);
+// notas que chegaram para a loja pela Sefaz (certificado digital do Windows)
+app.use(rotasSefaz);
+// afazeres que a equipe escreve (aba Tarefas), com ou sem IA
+app.use(rotasAfazeres);
 // fornecedor da nota (obrigatorio antes de gravar): escolher ou cadastrar
 app.use(rotasFornecedor((id) => {
   const guardada = conferenciasAbertas.get(id);
@@ -794,6 +858,8 @@ let nomeNaRedeOk = Boolean(anunciarNomeNaRede({
 }));
 mostrarEnderecos();
 abrirNoNavegador();
+// notas que chegaram pela Sefaz: confere sozinho, respeitando a regra de 1 hora dela
+buscarNotasDeHoraEmHora();
 
 /**
  * Deixa o numero do processo guardado em dados/plugin.pid.

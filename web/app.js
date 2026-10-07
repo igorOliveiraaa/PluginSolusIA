@@ -36,6 +36,77 @@ export function iniciarTelaDeNota() {
   desenharArquivos();
 }
 
+// nota baixada da Sefaz (notas-sefaz.js): entra como se a pessoa tivesse escolhido
+// o XML, e ja vai para a leitura (com a observacao que estiver escrita)
+document.addEventListener('abrir-xml-da-sefaz', (e) => {
+  estado.arquivos = [e.detail];
+  desenharArquivos();
+  $('#btn-ler').click();
+});
+
+// "Continuar de onde parou" na lista da Sefaz
+document.addEventListener('continuar-conferencia', (e) => continuarConferencia(e.detail));
+
+/** O que a tela decide em cada item, do jeito que a conferencia sugeriu. */
+function decisoesIniciais(conferencia) {
+  return conferencia.itens.map((item) => ({
+    acao: item.acao,
+    quantidadeUnidades: item.quantidadeUnidades,
+    custoUnitario: item.custoUnitario,
+    precoVenda: item.precoVenda,
+    igualarIrmaos: false,
+    desativarIrmaos: [],
+    origemPreco: item.analise.recomendacao,
+    // produto novo: o nome que vai para o cadastro (a IA já arrumou, dá para editar)
+    descricao: item.descricao,
+  }));
+}
+
+const quandoFoi = (iso) => {
+  const d = new Date(iso);
+  return new Date().toDateString() === d.toDateString()
+    ? `hoje às ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
+    : d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+};
+
+/** Abre a conferencia guardada de uma nota, com tudo o que ja tinha sido decidido. */
+async function continuarConferencia(chave) {
+  try {
+    const r = await api(`/api/rascunho/${chave}/abrir`, { method: 'POST' });
+    estado.conferencia = r.conferencia;
+    estado.idConferencia = r.id;
+    const decididas = Array.isArray(r.decisoes) && r.decisoes.length === r.conferencia.itens.length;
+    estado.decisoes = decididas ? r.decisoes : decisoesIniciais(r.conferencia);
+    rascunhoSalvo = assinaturaDoRascunho();
+    permitirAnimarDeNovo($('#lista-itens'));
+    desenharConferencia(r.jaAplicada);
+    mostrarTela('conferencia');
+    avisar(`Continuando de onde parou (${quandoFoi(r.atualizadoEm)}).`);
+  } catch (erro) {
+    avisar(erro.message, 'erro');
+  }
+}
+
+// Enquanto a pessoa confere, o que ja foi decidido fica guardado no servidor
+// (a cada 5 segundos, so quando mudou): fechar a aba, cair a luz ou atender o
+// balcao nao perde o trabalho. Nota sem chave (foto sem a chave legivel) nao guarda.
+let rascunhoSalvo = '';
+function assinaturaDoRascunho() {
+  const c = estado.conferencia;
+  return JSON.stringify([estado.decisoes, c?.fornecedor?.codigoNoSolus,
+    (c?.itens || []).map((i) => `${i.produto?.codigo || ''}:${i.acao}`)]);
+}
+setInterval(async () => {
+  if (!$('#tela-conferencia')?.classList.contains('ativa')) return;
+  if (!estado.idConferencia || String(estado.conferencia?.chave || '').length !== 44) return;
+  const agora = assinaturaDoRascunho();
+  if (agora === rascunhoSalvo) return;
+  try {
+    await api('/api/rascunho', { method: 'POST', body: JSON.stringify({ id: estado.idConferencia, decisoes: estado.decisoes }) });
+    rascunhoSalvo = agora;
+  } catch { /* conferencia expirada ou sem permissao: so nao guarda */ }
+}, 5000);
+
 // ---------------------------------------------------------------------------
 // Escolha de arquivos
 // ---------------------------------------------------------------------------
@@ -137,19 +208,20 @@ $('#btn-ler').addEventListener('click', async () => {
     const resultado = await resposta.json();
     if (!resultado.ok) throw new Error(resultado.erro);
 
+    // essa nota ja tinha sido comecada e ficou no meio: continua de onde parou?
+    if (resultado.rascunho) {
+      const r = resultado.rascunho;
+      const continuar = confirm(`Essa nota já foi começada a conferir em ${quandoFoi(r.atualizadoEm)}`
+        + `${r.operador ? ` (${r.operador})` : ''}.\n\nOK = continuar de onde parou\nCancelar = começar do zero`);
+      if (continuar) {
+        await continuarConferencia(r.chave);
+        return;
+      }
+    }
+
     estado.conferencia = resultado.conferencia;
     estado.idConferencia = resultado.id;
-    estado.decisoes = resultado.conferencia.itens.map((item) => ({
-      acao: item.acao,
-      quantidadeUnidades: item.quantidadeUnidades,
-      custoUnitario: item.custoUnitario,
-      precoVenda: item.precoVenda,
-      igualarIrmaos: false,
-      desativarIrmaos: [],
-      origemPreco: item.analise.recomendacao,
-      // produto novo: o nome que vai para o cadastro (a IA já arrumou, dá para editar)
-      descricao: item.descricao,
-    }));
+    estado.decisoes = decisoesIniciais(resultado.conferencia);
 
     desenharConferencia(resultado.jaAplicada);
     mostrarTela('conferencia');
@@ -990,7 +1062,11 @@ async function escolherProduto(codigo) {
 // ---------------------------------------------------------------------------
 
 $('#btn-voltar').addEventListener('click', () => {
-  if (confirm('Cancelar esta nota? O que foi conferido será perdido.')) {
+  const guarda = String(estado.conferencia?.chave || '').length === 44;
+  const pergunta = guarda
+    ? 'Sair desta nota? O que você já conferiu fica guardado: abrindo a nota de novo, dá para continuar de onde parou.'
+    : 'Cancelar esta nota? O que foi conferido será perdido.';
+  if (confirm(pergunta)) {
     estado.conferencia = null;
     estado.arquivos = [];
     permitirAnimarDeNovo($('#lista-itens'));

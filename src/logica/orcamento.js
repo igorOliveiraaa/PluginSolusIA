@@ -45,6 +45,25 @@ function umDominaOsOutros(queEleJaLevou, historico) {
 }
 
 /**
+ * A PALAVRA QUE DISTINGUE: palavra do pedido que outro candidato tem e este nao.
+ * Pediram "desinfetante aylag LAVANDA": o de ALGAS nao tem "lavanda" e o de
+ * lavanda tem - entao o de algas nao serve, mesmo sendo o que o cliente mais
+ * compra e mesmo que a IA diga "mesmo produto" (foi o erro da loja, 10/2026).
+ * Palavra que NENHUM candidato tem ("desinfetante LIQUIDO": cadastro nenhum
+ * escreve liquido) nao distingue nada e nao conta contra ninguem.
+ */
+function marcarPalavrasQueFaltam(candidatos) {
+  const alguemTem = new Set(candidatos.flatMap((c) => c.palavrasQueBateram || []));
+  for (const candidato of candidatos) {
+    const tem = new Set(candidato.palavrasQueBateram || []);
+    candidato.faltaPalavra = [...alguemTem].filter((palavra) => !tem.has(palavra));
+  }
+  // os que tem tudo o que distingue vem na frente (o resto continua na lista)
+  return [...candidatos.filter(naoContradiz), ...candidatos.filter((c) => !naoContradiz(c))];
+}
+const naoContradiz = (candidato) => !(candidato.faltaPalavra || []).length;
+
+/**
  * Procura os candidatos de um item no catalogo.
  * Devolve o escolhido (quando da para ter certeza) e sempre a lista de opcoes.
  */
@@ -60,27 +79,31 @@ async function procurarCandidatos(item, preferidos, historico = new Map()) {
 
   // 2) busca no catalogo, ja com o historico do cliente pesando na ordem
   // sugestao automatica: produto parado (prazo dos Ajustes) nao entra
-  const candidatos = await buscarPorDescricao(textoDeBusca(item), 8, {
+  const achados = await buscarPorDescricao(textoDeBusca(item), 8, {
     preferir: preferidos,
     esconderParados: true,
   });
-  if (!candidatos.length) {
+  if (!achados.length) {
     return { escolhido: null, opcoes: [], certeza: 'nenhuma', comoAchou: 'não encontrado' };
   }
+  const candidatos = marcarPalavrasQueFaltam(achados);
   for (const candidato of candidatos) {
     const dele = historico.get(candidato.codigo);
     if (dele) candidato.doCliente = { vezes: dele.vezes, ultima: dele.ultima };
   }
 
   const melhor = candidatos[0];
-  const segundo = candidatos[1];
+  // o "segundo" que conta para empate e o proximo que tambem serve: um de outro
+  // perfume na frente (por ser o que o cliente compra) nao e empate
+  const segundo = candidatos.filter(naoContradiz)[1];
   const jaComprou = preferidos.includes(melhor.codigo);
 
   // O cliente ja levou MAIS DE UM dos que servem ("lava roupas 5l": comprou o
   // Harmoniex e o Coco). Escolher um dos dois seria chute - pergunta, com os
-  // que ELE compra na frente.
+  // que ELE compra na frente. "Os que servem" nao inclui o que nao tem a palavra
+  // que distingue (o de algas para quem pediu lavanda).
   const queEleJaLevou = candidatos
-    .filter((c) => c.cobertura >= COBERTURA_SUFICIENTE && historico.has(c.codigo))
+    .filter((c) => c.cobertura >= COBERTURA_SUFICIENTE && historico.has(c.codigo) && naoContradiz(c))
     .sort((a, b) => historico.get(b.codigo).ultima - historico.get(a.codigo).ultima);
   if (queEleJaLevou.length >= 2 && !umDominaOsOutros(queEleJaLevou, historico)) {
     const resto = candidatos.filter((c) => !queEleJaLevou.includes(c));
@@ -105,7 +128,8 @@ async function procurarCandidatos(item, preferidos, historico = new Map()) {
   }
 
   const claramenteMelhor = !segundo || (melhor.nota - segundo.nota) >= DISTANCIA_SEGURA;
-  const casouQuaseTudo = melhor.cobertura >= COBERTURA_SUFICIENTE;
+  // falta a palavra que distingue em todos (cada um sem uma coisa): pergunta
+  const casouQuaseTudo = melhor.cobertura >= COBERTURA_SUFICIENTE && naoContradiz(melhor);
 
   // so decide sozinho quando casou o que foi pedido E nao ha empate com outro
   if (casouQuaseTudo && (claramenteMelhor || jaComprou)) {
@@ -295,6 +319,8 @@ const opcaoForte = (opcao) => (opcao.cobertura ?? 1) >= COBERTURA_PARA_A_IA_DECI
  */
 function serveAoPedido(opcao) {
   if (opcao.relacaoIA === 'outro') return false;
+  // nem a IA dizendo "mesmo" passa por cima: pediram lavanda, o de algas nao serve
+  if (!naoContradiz(opcao)) return false;
   if (opcao.relacaoIA === 'mesmo' && opcaoForte(opcao)) return true;
   return (opcao.cobertura ?? 0) >= COBERTURA_SUFICIENTE;
 }
@@ -313,7 +339,8 @@ async function procurarPorOutroNome(itens) {
   let achados = 0;
   for (const [ordem, item] of semNada.entries()) {
     for (const nome of nomes[ordem] || []) {
-      const candidatos = (await buscarPorDescricao(nome, 6, { esconderParados: true })).filter(opcaoForte);
+      const candidatos = marcarPalavrasQueFaltam(await buscarPorDescricao(nome, 6, { esconderParados: true }))
+        .filter(opcaoForte);
       if (!candidatos.length) continue;
       // os achados pelo outro nome vêm na frente; as opções de antes continuam
       // atrás (se a IA errar o outro nome, nada que existia some da tela)
@@ -397,6 +424,9 @@ export async function conferirOpcoesComIA({ itens, cliente, mostrarCusto = false
    * primeiro.
    */
   const grupo = (opcao) => {
+    // sem a palavra que distingue (o de algas para quem pediu lavanda) vai para
+    // depois dos que servem - mesmo sendo o que este cliente compra
+    if (!naoContradiz(opcao)) return 3;
     // o que ESTE cliente compra fica na frente, na ordem que ja veio (a compra
     // mais recente primeiro). A IA nao mexe nisso: ela so poe a etiqueta
     // ("IA: 1 litro contra 5 litros"), e quem atende ve na hora.

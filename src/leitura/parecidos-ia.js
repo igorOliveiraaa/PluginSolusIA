@@ -98,6 +98,15 @@ REGRAS QUE NAO PODEM SER QUEBRADAS:
   "qboa" e agua sanitaria (nao e alcool), "bombril" e la de aco,
   "veja" e limpador multiuso, "pinho sol" e desinfetante.
 - Produto sem tamanho escrito em nenhum dos dois lados pode ser "mesmo".
+- PERFUME, aroma, fragrancia, sabor ou cor que o PEDIDO diz e o cadastro tem
+  OUTRO (lavanda x algas x jasmim x eucalipto x floral) nunca e "mesmo": e
+  "variacao" ("lavanda contra algas"). Mesmo tipo e mesma marca nao bastam.
+- Palavra do pedido que so descreve o que todo produto daquele tipo ja e
+  (desinfetante LIQUIDO, detergente LIQUIDO) nao conta contra o cadastro que
+  nao a escreve. "Liquido" NAO e tamanho: 2L e 5L nao contradizem "liquido".
+- Compare cada cadastro com o PEDIDO, nunca com os outros cadastros da lista:
+  pedido sem tamanho ("desinfetante lavanda") e "mesmo" tanto para o de 2L
+  quanto para o de 5L.
 - Use SOMENTE os codigos que eu mandei. Nao invente cadastro nem codigo.
 - "motivo" em portugues simples, no maximo 6 palavras ("mesma marca e tamanho",
   "5 litros contra 1 litro").

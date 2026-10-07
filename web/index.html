@@ -155,6 +155,8 @@
 
   <!-- ===================== ENTRADA DE NOTA ===================== -->
   <section id="tela-enviar" class="tela">
+    <div id="notas-sefaz" class="cartao notas-sefaz"></div>
+
     <div class="cartao">
       <h2>Entrada de nota</h2>
       <p class="ajuda">
@@ -375,15 +377,8 @@
 
   <!-- ===================== TAREFAS ===================== -->
   <section id="tela-tarefas" class="tela">
-    <div class="cartao">
-      <h2>O que falta fazer</h2>
-      <p class="ajuda" style="margin:0">
-        O Plugin monta o orçamento; finalizar a venda e gerar a nota é no Solus.
-        Ele fica de olho e tira da lista sozinho quando estiver feito.
-      </p>
-      <button class="botao secundario largura-total" id="btn-atualizar-tarefas">Atualizar agora</button>
-    </div>
-    <div id="lista-tarefas"></div>
+    <!-- os afazeres que a equipe escreve (web/afazeres.js) -->
+    <div id="afazeres" class="cartao afazeres"></div>
   </section>
 
   <!-- ===================== HISTÓRICO ===================== -->

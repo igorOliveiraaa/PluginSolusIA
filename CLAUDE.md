@@ -74,7 +74,24 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 | `src/logica/padroes-fiscais.js` | CST, IBS/CBS e "acessa valores" que o produto precisa ter |
 | `src/logica/caixa.js` | Caixa ou unidade? Decide olhando o produto do Solus |
 | `src/memoria-caixas.js` | O que o Plugin já aprendeu de "quantas vêm na caixa" por produto |
-| `src/db/fornecedores.js` | Fornecedor da nota → fornecedor do Solus (pelo CNPJ) |
+| `src/db/fornecedores.js` | Fornecedor da nota → fornecedor do Solus (pelo CNPJ); procurar e cadastrar |
+| `src/rotas-fornecedor.js` | Rotas do fornecedor obrigatório da nota (escolher, consultar CNPJ, cadastrar) |
+| `web/fornecedor-nota.js` | O cartão do fornecedor na conferência da nota |
+| `src/sefaz/sefaz.ps1` | Fala com a Sefaz pelo Windows: lista certificados, assina, envia (sem acento de propósito) |
+| `src/sefaz/certificado.js` | Ponte Node → PowerShell e a escolha do certificado da loja pelo CNPJ |
+| `src/sefaz/sefaz.js` | Distribuição DF-e e Ciência da Operação: montar o pedido e ler a resposta |
+| `src/sefaz/notas-recebidas.js` | As notas que chegaram para cada loja, a regra de 1 hora e baixar o XML |
+| `src/rotas-sefaz.js` | Rotas das notas da Sefaz e a busca automática de hora em hora |
+| `web/notas-sefaz.js` | O cartão "Notas que chegaram pela Sefaz" na aba Nota |
+| `src/ferramentas/t-sefaz.mjs` | Tudo da Sefaz com uma Sefaz de mentira (36 conferências) |
+| `src/rascunhos.js` | Conferência de nota que ficou no meio: guardar e continuar de onde parou |
+| `src/ferramentas/t-rascunho.mjs` | Continuar de onde parou: guardar, continuar, recomeçar, gravar apaga |
+| `src/ferramentas/t-estoque-na-hora.mjs` | Venda do caixa durante a conferência (e depois de gravar) não some do estoque |
+| `src/ferramentas/t-palavra-que-distingue.mjs` | O caso "desinfetante aylag lavanda" que vinha algas (com a IA de verdade) |
+| `src/afazeres.js` | Afazeres da loja: guardar, editar, concluir e a IA que monta a tarefa do texto livre |
+| `src/rotas-afazeres.js` | Rotas dos afazeres |
+| `web/afazeres.js` | A lista de afazeres na aba Tarefas (escrever, editar, concluir, excluir, lembrete) |
+| `src/ferramentas/t-afazeres.mjs` | Afazeres com e sem IA, editar, concluir, desfazer, excluir |
 | `src/db/venda-valida.js` | O que conta como VENDA (só FATURADO) — usado em toda consulta |
 | `src/db/parados.js` | Marcar " - DESATIVADO" nos produtos parados há 2 anos |
 | `src/nome-na-rede.js` | Anuncia `plugin-solus.local` na rede (o endereço que não muda) |
@@ -114,11 +131,13 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 | `web/aviso-ia.js` | Faixa de "acabou o crédito da IA" |
 | `src/ferramentas/` | Scripts de teste (`varredura.mjs` caça bugs no codigo; `gerar-icones.mjs` refaz os icones) |
 | `src/ferramentas/navegador.mjs` | Dirige o Chrome/Edge do PC em modo invisível (clica como gente, pega erro do console) |
-| `src/ferramentas/t-navegador.mjs` | A revisão completa NA TELA: login, nota, histórico, orçamento, tarefas, ajustes, chat, celular (89 conferências). Rodar com `PLUGIN_HOJE=2025-08-22 npm start` |
+| `src/ferramentas/t-navegador.mjs` | A revisão completa NA TELA: login, nota, fornecedor, histórico, orçamento, afazeres, ajustes, chat, celular (93 conferências). Rodar com `PLUGIN_HOJE=2025-08-22 npm start` |
 | `src/ferramentas/credenciais-de-teste.mjs` | Usuário/senha dos testes — vem de `dados/teste.json`, nunca do código |
 | `src/ferramentas/t-orcamento-no-solus.mjs` | Grava orçamento e compara campo a campo com os 595 que o próprio Solus gravou |
 | `src/ferramentas/t-cadastros-no-solus.mjs` | O mesmo para produto novo (nota) e cliente novo (CNPJ) |
 | `src/ferramentas/t-ultima-compra.mjs` | A nota do Plugin vira "última compra" na tela de produto do Solus (e o desfazer apaga) |
+| `src/ferramentas/t-fornecedor-nota.mjs` | Fornecedor obrigatório: recusa sem ele, procurar, escolher, cadastrar igual ao Solus |
+| `src/ferramentas/fornecedor-de-teste.mjs` | O fornecedor da nota de exemplo (NÃO existe no Solus de propósito) e a limpeza dele |
 
 ## O que aprendi do banco do Solus (importante, custou trabalho descobrir)
 
@@ -211,6 +230,10 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
   dia sem hora, USUARIO, PVA → PVN, BARRAS, PRODUTO = nome) — também em troca manual de
   preço; `PRODUTO.UPRECOCAIXA` = dia do lançamento ("Data Alteração Preço Vista"; o nome
   engana, é data); `PRODUTO.ULTIMACOMPRA` = data de **emissão** da nota, não o dia.
+- **Fornecedor no Solus** (`FORNECEDOR`): código vem de `CODFORNECEDOR.CODIGO` (= o
+  próximo a usar); CPFCNPJ com pontuação, TIPOFORN "JURIDICA", IE só com números, CEP
+  "00000-000", NUMERO só tem 5 letras; não tem campo de valor ("0,00"). Uns 30 estão
+  cadastrados SEM CNPJ ("  .   .   /    -" ou "00.000.000/0000-00").
 
 ## A IA: hoje e o ChatGPT (OpenAI)
 
@@ -742,7 +765,92 @@ hoje). Data da foto que não existe, no futuro ou com mais de 400 dias vira hoje
 histórico do Plugin mostra "última compra no Solus: nota X de dd/mm". Provado em
 `t-ultima-compra.mjs` e `t-navegador` (89/89). ENTRADA/CENTRADA continuam sem mexer.
 
+### 22. Fornecedor obrigatório na nota (07/10/2026)
+Sem o fornecedor no Solus a nota não entra na aba "Fornecedores do Produto". Agora a
+conferência mostra um cartão no topo: fornecedor achado pelo CNPJ fica verde; senão é
+**obrigatório** escolher um que já existe ("Já está no Solus — procurar", com os de nome
+parecido sugeridos para não repetir) ou **cadastrar**. XML completo → resumo + um clique
+(dados do próprio XML: endereço e IE); nota por foto → formulário, completado sozinho pela
+Receita. CNPJ digitado que já está no Solus liga direto; o CNPJ da própria loja é recusado
+(a IA às vezes lê o do destinatário). Escolher um cadastrado SEM CNPJ grava nele o da nota
+(se ninguém mais tiver), e a próxima nota já vem ligada. O servidor recusa `/api/aplicar`
+sem fornecedor (e isso não vira "tentativa com erro" no histórico). O fornecedor agora é
+consultado direto no banco (antes ficava 10 min na memória e não via cadastro novo).
+Provado em `t-fornecedor-nota` (19/19), `t-navegador` (93/93) e nos outros testes de nota.
+
+### 23. Notas que chegam sozinhas pela Sefaz (07/10/2026)
+Aba Nota, cartão no topo: todas as NF-e emitidas CONTRA o CNPJ da loja aparecem
+sozinhas (fornecedor, número, data, valor) com "falta lançar" / "lançada no Plugin" /
+"já lançada no Solus" (CENTRADA.CHAVENFE) / "cancelada pelo fornecedor". **"Abrir na
+conferência"** baixa o XML e segue o caminho de sempre (o mesmo de escolher o arquivo).
+- Serviços **oficiais** da Sefaz (Ambiente Nacional): Distribuição DF-e (a lista) e
+  Recepção de Evento (a **Ciência da Operação**, que libera o XML — só ao clicar em abrir).
+- O certificado A1 é usado **direto do Windows** pelo PowerShell/.NET (`sefaz.ps1`): sem
+  copiar o arquivo e sem guardar senha. O certificado da loja é achado sozinho pela raiz
+  do CNPJ (`PARAMETRO.CPFCNPJ`); o que vence por último ganha. Vencendo em ≤30 dias, avisa.
+- **Regra de 1 hora da Sefaz** (senão bloqueia com 656): sem nada novo ou depois de pegar
+  tudo, só pergunta de novo 61 min depois — vale para o automático E para o botão. Sem
+  internet tenta em 15 min. Uma fila por loja impede duas buscas ao mesmo tempo.
+- Estado em `dados/.../sefaz/notas-recebidas.json` (180 dias) e XMLs em `sefaz/xml/`.
+- O Windows confia nos servidores da Sefaz (GlobalSign e Let's Encrypt): nada de pular
+  a conferência do HTTPS.
+- **Este PC de desenvolvimento só tem o certificado da empresa do Igor** (59.868.230/0001-10),
+  não o da loja: aqui o cartão mostra "certificado não instalado neste PC". Assinatura
+  testada com o certificado do Igor (só local). **Teste de verdade com a Sefaz feito em
+  07/10/2026** (autorizado pelo Igor, SÓ consulta, CNPJ dele): respondeu 137 "Nenhum
+  documento localizado" em 0,6 s — certificado do Windows aceito, pedido no formato
+  oficial e resposta lida. Ainda NÃO testados ao vivo: resposta com notas (138) e a
+  Ciência da Operação (precisam de nota real: primeiro teste será na loja).
+  `t-sefaz.mjs` cobre os dois com uma Sefaz de mentira no formato oficial.
+
+- **Filtros na lista** (número, fornecedor/CNPJ, período, situação com contagem) e a
+  situação **"em conferência — parou às HH:MM"** com "Continuar de onde parou" /
+  "recomeçar do zero" (ver item 24).
+
+### 24. Continuar a conferência de onde parou (07/10/2026)
+A conferência de uma nota (com chave) fica guardada em `dados/.../rascunhos/<chave>.json`
+(`src/rascunhos.js`): ao abrir, e a tela manda o que foi decidido a cada 5 s quando muda.
+Abrir a mesma nota de novo (pela lista da Sefaz ou mandando o XML) pergunta "continuar de
+onde parou?" e devolve decisões + fornecedor ligado. Gravar apaga; 30 dias parado apaga;
+"Cancelar" agora diz que fica guardado. Provado em `t-rascunho.mjs` e na tela.
+
+### 25. Estoque lido NA HORA de gravar (07/10/2026) — bug sério que existia
+A gravação somava a nota ao estoque de QUANDO A NOTA FOI ABERTA: o que o caixa vendeu
+durante a conferência (nota grande = 20 min) voltava para o estoque. Agora
+`comoEstaAgora()` (gravacao.js) relê estoque/custo/preço/nome dentro da transação. E o
+**desfazer tira só o que a nota somou**, em cima do estoque de agora (antes voltava ao
+número antigo e apagava as vendas feitas depois). `t-estoque-na-hora.mjs`.
+
+### 26. Orçamento: a palavra que distingue (07/10/2026)
+A loja pediu "desinfetante líquido aylag lavanda" e veio outra coisa; para quem compra
+muito o de ALGAS vinha o de algas (a IA dizia "mesmo produto" e a regra "o produto do
+cliente vem primeiro" fazia o resto). Agora: palavra pedida que OUTRO candidato tem e este
+não ("lavanda") tira o candidato da escolha automática e do "serve" — nem a IA nem o
+histórico do cliente passam por cima (`marcarPalavrasQueFaltam` em logica/orcamento.js; a
+busca devolve `palavrasQueBateram`). Palavra que nenhum cadastro tem ("líquido") não conta.
+A IA também aprendeu: perfume/cor diferente é variação; "líquido" não é tamanho; comparar
+com o PEDIDO e não entre cadastros. **Sugestão automática só entre os ativos**: cancelado e
+" - DESATIVADO" não entram (na pesquisa na mão aparecem, no fim). Mantido: 30/30 · 27/30 ·
+30/30 (`t-preco-do-cliente`) e 12/12 (`t-alcool-5l`).
+
+### 27. Afazeres escritos pela equipe (07/10/2026)
+Pedido do Igor: a aba Tarefas não precisa puxar do Solus; a equipe escreve. Agora ela abre
+nos **Afazeres** (`dados/.../afazeres.json`, a loja toda vê a mesma lista): escreve do
+seu jeito e, com "Montar com a IA", ela faz título, detalhe, data, hora e urgente — e
+separa quando são duas coisas ("ligar pra Aylag amanhã 10h... e conferir o boleto sexta"
+= 2 tarefas, ~1,5 s, modelo econômico). Sem IA (ou se ela falhar) entra como foi escrito.
+Editar (dia/hora/urgente), concluir (vai para "Feitas", 30 dias), desmarcar, excluir.
+Grupos: Atrasadas / Hoje / Próximos dias / Sem data. Lembrete na tela na hora marcada.
+O selo da aba conta os afazeres pendentes. **Os avisos automáticos do Solus (orçamento a
+enviar, nota a gerar/rejeitada/autorizada, "Baixar XML") foram TIRADOS da tela** a pedido
+do Igor: a aba é só dos afazeres. A parte do servidor (`src/tarefas.js`, rotas
+`/api/tarefas` em `rotas-vendas.js`) ficou parada, sem ninguém chamando — dá para religar
+voltando a tela, ou apagar de vez. `t-afazeres.mjs` e `t-navegador` (93/93).
+
 ### Pendente
+- **Na loja: conferir o cartão "Notas que chegaram pela Sefaz"** no PC do Plugin. Se disser
+  que o certificado não está neste PC, instalar o .pfx da loja nele (dois cliques).
+- **Na loja: lançar uma nota de fornecedor novo** e conferir o cadastro dele no Solus.
 - **Na loja: lançar uma nota pelo Plugin e abrir o produto no Solus** (aba Fornecedores
   do Produto e Data Alteração Preço) para ver a nota nova lá.
 - **Na loja: gravar um orçamento e abrir no Solus** para confirmar o conserto. Os

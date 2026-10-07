@@ -17,6 +17,11 @@ import { abrirNavegador } from './navegador.mjs';
 import { credenciaisDeTeste } from './credenciais-de-teste.mjs';
 import { consultar } from '../db/firebird.js';
 import { apagarFornecedorDeTeste } from './fornecedor-de-teste.mjs';
+import { apagarRascunho } from '../rascunhos.js';
+
+// a nota de exemplo: conferencia dela que tenha ficado guardada de outra rodada
+// faria a tela perguntar "continuar de onde parou?" no meio do teste
+const CHAVE_DA_NOTA_DE_EXEMPLO = '35250912345678000199550010000012341000012349';
 
 const S = 'http://localhost:3535';
 const resultado = [];                 // [{ item, ok, detalhe }]
@@ -60,6 +65,7 @@ const [antes] = await consultar(
 );
 // o fornecedor da nota de exemplo NAO pode existir: a tela tem que pedir o cadastro
 await apagarFornecedorDeTeste();
+apagarRascunho(CHAVE_DA_NOTA_DE_EXEMPLO);
 
 // ===========================================================================
 await secao('A. Entrar', async () => {
@@ -450,21 +456,24 @@ await secao('E. Orçamento: PDF, Excel e gravar', async () => {
 
 await secao('G. Tarefas', async () => {
   await irParaAba('tarefas');
-  await nav.esperarAte("document.querySelector('#lista-tarefas')?.innerText.length > 0", { descricao: 'lista de tarefas' });
-  const lista = await texto('#lista-tarefas');
-  marcar('34. a lista de tarefas abre', true, `${(lista.match(/\n/g) || []).length} linhas`);
-  if (numeroOrcamentoGravado) {
-    marcar('34. o orçamento gravado virou tarefa ("enviar"/"finalizar")',
-      new RegExp(String(numeroOrcamentoGravado)).test(lista));
-    // um orçamento gera DUAS tarefas (enviar e finalizar): dispensa uma, confere essa
-    const idTarefa = await nav.avaliar(`document.querySelector('[data-dispensar*="${numeroOrcamentoGravado}"]')?.dataset.dispensar || ''`);
-    if (idTarefa) {
-      await nav.clicar(`[data-dispensar="${idTarefa}"]`);
-      await nav.esperarAte(`!document.querySelector('[data-dispensar="${idTarefa}"]')`, { tempo: 8000, descricao: 'tarefa sumir' });
-      marcar('35. "Já resolvi" tira a tarefa da lista', true, idTarefa);
-    }
-  }
+  // a aba e so dos AFAZERES que a equipe escreve (os avisos automaticos do Solus
+  // foram tirados a pedido da loja em 10/2026)
+  await nav.esperarAte("document.querySelector('#afazer-texto')", { descricao: 'afazeres' });
+  marcar('48. a aba Tarefas abre nos afazeres (sem os avisos automáticos do Solus)',
+    !await nav.avaliar("document.querySelector('#lista-tarefas, #avisos-solus')"));
   await nav.foto('g-tarefas');
+
+  await nav.avaliar("document.querySelector('#afazer-ia').checked = false");
+  await nav.digitar('#afazer-texto', 'TESTE DO NAVEGADOR conferir a vitrine');
+  await nav.clicar('#btn-afazer-adicionar');
+  await nav.esperarAte("[...document.querySelectorAll('#afazeres .afazer-titulo')].some((e) => e.innerText.includes('TESTE DO NAVEGADOR'))",
+    { descricao: 'afazer novo' });
+  marcar('48. escrever um afazer e ele aparece na lista', true);
+  const idAfazer = await nav.avaliar("[...document.querySelectorAll('#afazeres .afazer')].find((e) => e.innerText.includes('TESTE DO NAVEGADOR')).dataset.afazer");
+  nav.responderDialogo({ aceitar: true });
+  await nav.clicar(`[data-excluir="${idAfazer}"]`);
+  await nav.esperarAte(`!document.querySelector('[data-afazer="${idAfazer}"]')`, { descricao: 'afazer excluído' });
+  marcar('48. excluir o afazer tira da lista', true);
 });
 
 // o orçamento de teste sai do Solus (como o teste-fluxo-completo faz)
@@ -595,6 +604,7 @@ await secao('I. Celular (390px)', async () => {
 
 // ===========================================================================
 await apagarFornecedorDeTeste();
+apagarRascunho(CHAVE_DA_NOTA_DE_EXEMPLO);
 const falhas = resultado.filter((r) => !r.ok);
 fs.writeFileSync(path.join(process.env.PASTA_FOTOS || '.', 'resultado-navegador.json'),
   JSON.stringify(resultado, null, 2));

@@ -132,7 +132,7 @@
   {
     "item": "17. o lançamento entrou no histórico",
     "ok": true,
-    "detalhe": "20261007183727-80un"
+    "detalhe": "20261007221221-xcbm"
   },
   {
     "item": "17. avisa quantos itens não entraram",
@@ -187,7 +187,7 @@
   {
     "item": "19. mesma nota de novo: avisa que já foi lançada",
     "ok": true,
-    "detalhe": "Atenção: essa nota já foi lançada em 07/10/2026, 15:37:27. Se gravar de novo, o estoque vai somar duas vezes."
+    "detalhe": "Atenção: essa nota já foi lançada em 07/10/2026, 19:12:21. Se gravar de novo, o estoque vai somar duas vezes."
   },
   {
     "item": "22. gravar com tudo \"não entrar\" é barrado",
@@ -202,7 +202,7 @@
   {
     "item": "22. tentativa com erro aparece no histórico",
     "ok": true,
-    "detalhe": "13 em vermelho"
+    "detalhe": "17 em vermelho"
   },
   {
     "item": "23. desfazer marca como desfeita",
@@ -237,12 +237,12 @@
   {
     "item": "25. o topo conta o que a IA fez (ou avisa se falhou)",
     "ok": true,
-    "detalhe": "A IA conferiu a lista: 1 item que estava em dúvida foi resolvido. Tudo continua editável — troque o que não estiver certo."
+    "detalhe": ""
   },
   {
     "item": "26. \"qboa\" achado como água sanitária",
     "ok": true,
-    "detalhe": "AGUA SANITARIA 1L Q.BOA / pedido como \"3 qboa 1 litro\" · a IA viu que é este / ESCOLHIDO PELA IA"
+    "detalhe": "AGUA SANITARIA 1L Q.BOA / pedido como \"3 qboa 1 litro\" · nome parecido / Sem estoque no sistema (-4)."
   },
   {
     "item": "28. \"costuma levar também\" aparece para cliente frequente",
@@ -267,7 +267,7 @@
   {
     "item": "29. mudar a quantidade recalcula o total",
     "ok": true,
-    "detalhe": "Total do orçamento R$ 679,05 -> Total do orçamento R$ 621,45"
+    "detalhe": "Total do orçamento R$ 635,85 -> Total do orçamento R$ 578,25"
   },
   {
     "item": "E. Orçamento: mexer nos itens: nenhum erro no console do navegador",
@@ -292,7 +292,7 @@
   {
     "item": "31. gravou o orçamento no Solus",
     "ok": true,
-    "detalhe": "Orçamento nº 156394 gravado no Solus."
+    "detalhe": "Orçamento nº 156398 gravado no Solus."
   },
   {
     "item": "E. Orçamento: PDF, Excel e gravar: nenhum erro no console do navegador",
@@ -300,19 +300,19 @@
     "detalhe": ""
   },
   {
-    "item": "34. a lista de tarefas abre",
-    "ok": true,
-    "detalhe": "9 linhas"
-  },
-  {
-    "item": "34. o orçamento gravado virou tarefa (\"enviar\"/\"finalizar\")",
+    "item": "48. a aba Tarefas abre nos afazeres (sem os avisos automáticos do Solus)",
     "ok": true,
     "detalhe": ""
   },
   {
-    "item": "35. \"Já resolvi\" tira a tarefa da lista",
+    "item": "48. escrever um afazer e ele aparece na lista",
     "ok": true,
-    "detalhe": "enviar-orcamento-156394"
+    "detalhe": ""
+  },
+  {
+    "item": "48. excluir o afazer tira da lista",
+    "ok": true,
+    "detalhe": ""
   },
   {
     "item": "G. Tarefas: nenhum erro no console do navegador",
@@ -322,7 +322,7 @@
   {
     "item": "31. orçamento de teste apagado do Solus",
     "ok": true,
-    "detalhe": "nº 156394"
+    "detalhe": "nº 156398"
   },
   {
     "item": "37. ajustes carregam os valores",
@@ -367,7 +367,7 @@
   {
     "item": "4. pergunta responde com número",
     "ok": true,
-    "detalhe": "Tem 20 produtos com estoque negativo nessa consulta.\n\nOs primeiros que apareceram foram:\n\n"
+    "detalhe": "Tem 50 produtos com estoque negativo no retorno que apareceu aqui.\n\nOs mais críticos no to"
   },
   {
     "item": "6. \"Planilha\" do resultado funciona sem erro",
@@ -377,7 +377,7 @@
   {
     "item": "5. continuação entende o assunto anterior",
     "ok": true,
-    "detalhe": "Os 3 primeiros com estoque negativo são:\n\n1. 9521 – ESPONJA DUPLA FACE ESPONFLORA\n\nEstoque"
+    "detalhe": "Os 3 primeiros com estoque negativo são:\n\n1. ESPONJA DUPLA FACE ESPONFLORA — estoque -1.75"
   },
   {
     "item": "7. \"Nova conversa\" à vista",

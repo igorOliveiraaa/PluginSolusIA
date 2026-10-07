@@ -6,11 +6,12 @@ import { aplicarIcones } from './icones.js';
 import './orcamento.js';
 import './instalar.js';
 import './assistente.js';
-import { carregarTarefas, acompanharDeFundo } from './tarefas.js';
+import { carregarAfazeres } from './afazeres.js';
 import { iniciarTelaDeNota } from './app.js';
 import { carregarMarca } from './marca.js';
 import { acompanharCreditoDaIA } from './aviso-ia.js';
 import './efeitos.js';
+import { carregarNotasDaSefaz } from './notas-sefaz.js';
 
 // navegacao das abas
 $$('.aba').forEach((aba) => {
@@ -29,18 +30,18 @@ carregarMarca();            // as cores guardadas entram antes de qualquer coisa
 // se a sessao ainda valer, entra direto; senao a tela de login aparece
 conferirSessao().then((entrou) => {
   if (entrou) {
-    carregarTarefas();
-    acompanharDeFundo();
+    carregarAfazeres();
     carregarMarca();
     acompanharCreditoDaIA();
+    carregarNotasDaSefaz();
   }
 });
 
 document.addEventListener('entrou', () => {
   mostrarTela('assistente');
-  carregarTarefas();
-  acompanharDeFundo();
+  carregarAfazeres();
   acompanharCreditoDaIA();
+  carregarNotasDaSefaz();
 });
 
 if ('serviceWorker' in navigator) {

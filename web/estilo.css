@@ -2401,3 +2401,74 @@ kbd {
   .fornecedor-nota .linha-busca { align-items: stretch; }
   .fornecedor-nota .linha-busca > .botao { margin: -4px 0 10px; }
 }
+
+/* ---- Notas que chegaram pela Sefaz (aba Nota) ---- */
+.sefaz-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.sefaz-topo h2 { margin: 0; }
+.lista-sefaz { display: grid; gap: 8px; margin: 10px 0 4px; }
+.nota-sefaz {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio-p); background: var(--vidro);
+}
+.nota-sefaz.falta { border-left: 4px solid var(--aviso); }
+.nota-sefaz-dados { min-width: 0; }
+.nota-sefaz-dados .etiqueta { margin-top: 4px; display: inline-block; }
+.nota-sefaz .botao { flex: 0 0 auto; }
+@media (max-width: 560px) {
+  .nota-sefaz { flex-direction: column; align-items: stretch; }
+}
+.sefaz-filtros { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 8px; }
+.sefaz-filtros input, .sefaz-filtros select {
+  font: inherit; padding: 9px 11px; border: 1px solid var(--borda); border-radius: var(--raio-p);
+  background: var(--vidro-forte, #fff); color: var(--texto);
+}
+.sefaz-filtros #sefaz-texto { flex: 1 1 220px; min-width: 0; }
+.sefaz-filtros #sefaz-datas { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.sefaz-filtros #sefaz-datas.escondido { display: none; }
+.sefaz-situacoes { margin: 0 0 4px; }
+.nota-sefaz.conferencia { border-left: 4px solid var(--info); }
+.nota-sefaz.falta { border-left: 4px solid var(--aviso); }
+.nota-sefaz.cancelada { opacity: .75; }
+.nota-sefaz-botoes { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 0 auto; }
+@media (max-width: 560px) {
+  .sefaz-filtros > * { flex: 1 1 100%; }
+  .nota-sefaz-botoes { align-items: stretch; }
+}
+
+/* ---- Afazeres (aba Tarefas) ---- */
+.afazeres textarea#afazer-texto {
+  width: 100%; font: inherit; padding: 11px 12px; border: 1px solid var(--borda);
+  border-radius: var(--raio-p); background: var(--vidro-forte, #fff); color: var(--texto); resize: vertical;
+}
+.afazer-enviar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 10px 0 4px; }
+.chave-ia { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--texto-fraco); cursor: pointer; }
+.afazer-grupo { font-size: 14px; margin: 18px 0 6px; }
+.afazer-grupo span { color: var(--texto-fraco); font-weight: 400; }
+.afazer-grupo.atrasada { color: var(--perigo); }
+.afazer-grupo.hoje { color: var(--aviso); }
+.lista-afazeres { display: grid; gap: 8px; }
+.afazer {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px;
+  border: 1px solid var(--borda); border-radius: var(--raio-p); background: var(--vidro);
+}
+.afazer.atrasada { border-left: 4px solid var(--perigo); }
+.afazer.nova { box-shadow: 0 0 0 2px var(--principal); }
+.afazer.feita .afazer-titulo { text-decoration: line-through; color: var(--texto-fraco); }
+.afazer-check { width: 20px; height: 20px; margin-top: 2px; flex: 0 0 auto; cursor: pointer; accent-color: var(--sucesso); }
+.afazer-texto { flex: 1; min-width: 0; }
+.afazer-titulo { font-weight: 600; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.afazer-detalhe { font-size: 13.5px; margin-top: 2px; white-space: pre-wrap; }
+.afazer-meta { font-size: 12.5px; color: var(--texto-fraco); display: flex; gap: 10px; flex-wrap: wrap; margin-top: 3px; }
+.afazer-meta .atrasada { color: var(--perigo); font-weight: 600; }
+.afazer-botoes { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: 0 0 auto; }
+.link-acao.perigo { color: var(--perigo); }
+.afazer.editando { display: block; }
+.afazer-form .campo { margin: 8px 0; }
+.afazeres-feitas { margin-top: 16px; }
+.afazeres-feitas summary { cursor: pointer; color: var(--texto-fraco); font-size: 13.5px; margin-bottom: 8px; }
+.afazer-vazio { margin: 14px 0 0; }
+@media (max-width: 560px) {
+  .afazer-enviar .botao { flex: 1 1 100%; }
+  .afazer-botoes { flex-direction: row; }
+  .afazer { flex-wrap: wrap; }
+}

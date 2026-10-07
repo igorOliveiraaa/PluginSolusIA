@@ -378,6 +378,7 @@ export async function buscarPorDescricao(descricao, limite = 8, opcoes = {}) {
         ...produto,
         nota: achado.nota,
         cobertura: achado.cobertura,
+        palavrasQueBateram: achado.palavrasQueBateram || [],
         vendidoNoPeriodo: achado.vendidoNoPeriodo,
         vezesVendido: achado.vezesVendido,
         ultimaVenda: achado.ultimaVenda,

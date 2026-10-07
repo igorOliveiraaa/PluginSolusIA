@@ -197,6 +197,8 @@ async function carregarProdutos() {
       estoque: paraNumero(linha.ESTOQUEATUAL),
       venda: paraNumero(linha.PRECOVENDA ?? linha.PV),
       cancelado: String(linha.STATUS || '').trim().toUpperCase() === 'CANCELADO',
+      // " - DESATIVADO" no nome (limpa do cadastro / parados): saiu de linha
+      desativado: /-\s*DESATIVADO\s*$/i.test(descricao),
     };
   }).filter((p) => p.codigo && p.descricao);
 }
@@ -409,13 +411,15 @@ export async function procurarNoCatalogo(texto, { limite = 12, preferir = [], es
   for (const produto of indice.produtos) {
     const doProduto = produto.palavras;
     if (!doProduto.length) continue;
-    // na SUGESTAO automatica, produto morto ha mais que o prazo dos Ajustes nem entra
-    // (na pesquisa que a pessoa faz na mao ele aparece, marcado como parado)
-    if (esconderParados && produto.parado) continue;
+    // na SUGESTAO automatica, produto morto ha mais que o prazo dos Ajustes nem entra,
+    // e o desativado/cancelado tambem nao: a sugestao e so entre os que estao valendo
+    // (na pesquisa que a pessoa faz na mao eles aparecem, marcados)
+    if (esconderParados && (produto.parado || produto.cancelado || produto.desativado)) continue;
 
     let soma = 0;
     let exatas = 0;
     const casadas = new Set();
+    const bateram = [];          // as palavras do pedido que este produto TEM
     for (const procurada of usadas) {
       let melhor = 0;
       let melhorIndice = -1;
@@ -429,6 +433,7 @@ export async function procurarNoCatalogo(texto, { limite = 12, preferir = [], es
         casadas.add(melhorIndice);
         if (melhor === 1) exatas += 1;
       }
+      if (melhor >= 0.8) bateram.push(procurada);
     }
 
     const cobertura = soma / usadas.length;
@@ -456,14 +461,14 @@ export async function procurarNoCatalogo(texto, { limite = 12, preferir = [], es
     nota += produto.popularidade * 0.16;
     nota += produto.recencia * 0.10;
     if (produto.estoque > 0) nota += 0.03;
-    if (produto.cancelado) nota -= 0.40;
+    if (produto.cancelado || produto.desativado) nota -= 0.40;
     if (produto.parado) nota -= 0.12;
 
     // o que este cliente ja levou ganha de todo o resto
     // entre dois que ele ja comprou (Harmoniex x Coco), ganha o que ele levou por ultimo
     if (preferidas.has(produto.codigo)) nota += 0.35 + 0.1 * (1 - preferidas.get(produto.codigo));
 
-    notas.push({ produto, nota, cobertura });
+    notas.push({ produto, nota, cobertura, bateram });
   }
 
   if (!notas.length) return [];
@@ -477,12 +482,13 @@ export async function procurarNoCatalogo(texto, { limite = 12, preferir = [], es
   return ordenados.slice(0, limite).map(formatar);
 }
 
-function formatar({ produto, nota, cobertura }) {
+function formatar({ produto, nota, cobertura, bateram = [] }) {
   return {
     codigo: produto.codigo,
     descricao: produto.descricao,
     nota: Math.round(Math.min(Math.max(nota, 0), 1.6) * 100) / 100,
     cobertura: Math.round(cobertura * 100) / 100,
+    palavrasQueBateram: bateram,
     cancelado: produto.cancelado,
     vendidoNoPeriodo: produto.vendidoNoPeriodo,
     vezesVendido: produto.vezesVendido,

@@ -308,8 +308,34 @@ export async function aplicarNota({ itens, atualizarEstoque = true, fornecedor =
   }).finally(invalidarCatalogo);
 }
 
+/**
+ * O produto como esta AGORA no banco, lido dentro da gravacao.
+ * O que veio da conferencia e de quando a nota foi aberta: conferir uma nota
+ * grande leva 20 minutos, e o caixa vende nesse meio tempo. Somar a nota ao
+ * estoque de 20 minutos atras apagava essas vendas do estoque.
+ */
+async function comoEstaAgora(executar, produto) {
+  const linha = (await executar(
+    `SELECT ${campoTexto('DESCRICAO', 70)}, STATUS, ESTOQUEATUAL, PRECOCUSTO, PC, PRECOVENDA, PV,
+            UPRECOCUSTO, UPC, MARGEM FROM PRODUTO WHERE TRIM(CODIGO) = ?`, [produto.codigo]))[0];
+  if (!linha) return produto;
+  const custo = paraNumero(linha.PRECOCUSTO ?? linha.PC);
+  const venda = paraNumero(linha.PRECOVENDA ?? linha.PV);
+  return {
+    ...produto,
+    descricao: lerTexto(linha.DESCRICAO) || produto.descricao,
+    status: String(linha.STATUS || '').trim(),
+    estoque: paraNumero(linha.ESTOQUEATUAL),
+    custoAtual: custo,
+    vendaAtual: venda,
+    custoAnterior: paraNumero(linha.UPRECOCUSTO ?? linha.UPC),
+    margemAtual: custo > 0 ? ((venda - custo) / custo) * 100 : paraNumero(linha.MARGEM),
+  };
+}
+
 async function atualizarProduto(executar, colunas, item, opcoes) {
-  const anterior = item.produto;            // como estava antes (lido na conferencia)
+  // como esta agora (nao como estava quando a conferencia abriu): ver comoEstaAgora
+  const anterior = await comoEstaAgora(executar, item.produto);
   const codigo = anterior.codigo;
 
   const estoqueNovo = opcoes.atualizarEstoque
@@ -555,9 +581,11 @@ async function fiscalQueFalta(executar, codigo, campos) {
  * Mexe SOMENTE em preco de venda e margem. Nao toca em estoque nem em custo,
  * porque cada cadastro tem o seu proprio historico de compra.
  */
-async function igualarPrecoDoIrmao(executar, colunas, irmao, precoVenda, compra = null) {
+async function igualarPrecoDoIrmao(executar, colunas, irmaoDaTela, precoVenda, compra = null) {
   const venda = Number(precoVenda || 0);
-  if (!venda || !irmao?.codigo) return { codigo: irmao?.codigo, semAlteracao: true };
+  if (!venda || !irmaoDaTela?.codigo) return { codigo: irmaoDaTela?.codigo, semAlteracao: true };
+  // o preco e o nome de agora: o "antes" do desfazer tem que ser o que estava valendo
+  const irmao = await comoEstaAgora(executar, irmaoDaTela);
 
   const margem = irmao.custoAtual > 0 ? ((venda - irmao.custoAtual) / irmao.custoAtual) * 100 : 0;
   const precoMudou = Math.abs((irmao.vendaAtual || 0) - (venda || 0)) >= 0.005;
@@ -614,7 +642,9 @@ const MARCA_DESATIVADO = ' - DESATIVADO';
  *   - marca STATUS = 'CANCELADO', que e como o proprio Solus desativa produto.
  * Estoque, custo e preco ficam exatamente como estavam.
  */
-async function desativarProduto(executar, colunas, produto) {
+async function desativarProduto(executar, colunas, produtoDaTela) {
+  // o nome de agora: alguem pode ter renomeado no Solus enquanto a nota era conferida
+  const produto = produtoDaTela?.codigo ? await comoEstaAgora(executar, produtoDaTela) : produtoDaTela;
   if (!produto?.codigo) return { semAlteracao: true };
 
   // nao carimbar duas vezes se ja estiver marcado
@@ -781,6 +811,16 @@ export async function desfazer(registros) {
       // a descricao foi guardada como texto legivel; para voltar ao banco ela
       // precisa virar bytes de novo, senao o acento volta quebrado
       const antes = { ...registro.antes };
+
+      // ESTOQUE: tira so o que a nota somou, em cima do estoque de AGORA. Voltar
+      // ao numero de antes apagaria tudo o que o caixa vendeu desde a gravacao.
+      const somado = Number(registro.depois?.estoque) - Number(registro.antesValores?.estoque);
+      const colunasDeEstoque = Object.keys(antes).filter((c) => /^ESTOQUE(ATUAL|TOTAL|EMP\d+)$/.test(c));
+      if (Number.isFinite(somado) && colunasDeEstoque.length) {
+        const agora = (await executar(
+          `SELECT ${colunasDeEstoque.join(', ')} FROM PRODUTO WHERE TRIM(CODIGO) = ?`, [registro.codigo]))[0];
+        if (agora) for (const coluna of colunasDeEstoque) antes[coluna] = paraTextoBR(paraNumero(agora[coluna]) - somado, 2);
+      }
       for (const coluna of ['DESCRICAO', 'NOMEFOR']) {
         if (antes[coluna] !== undefined) antes[coluna] = gravarTexto(antes[coluna]);
       }
