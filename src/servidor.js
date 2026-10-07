@@ -369,7 +369,14 @@ app.post('/api/aplicar', exigirLogin, exigirPermissao('mexerProduto'), async (re
     const paraGravar = itens.filter((i) => i.acao !== 'ignorar');
     if (!paraGravar.length) throw new Error('Nenhum item foi marcado para gravar.');
 
-    gravados = await aplicarNota({ itens, atualizarEstoque, fornecedor: conferencia.fornecedor });
+    gravados = await aplicarNota({
+      itens,
+      atualizarEstoque,
+      fornecedor: conferencia.fornecedor,
+      // numero e data da nota: viram a "ultima compra" na tela de produto do Solus
+      nota: { numero: conferencia.numero, emissao: conferencia.emissao },
+      operador: req.operador?.nome || String(operador || '').trim(),
+    });
     const registros = gravados;
 
     // aprende quantas unidades vem na caixa de cada produto (o que ficou decidido

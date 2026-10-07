@@ -118,6 +118,7 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 | `src/ferramentas/credenciais-de-teste.mjs` | Usuário/senha dos testes — vem de `dados/teste.json`, nunca do código |
 | `src/ferramentas/t-orcamento-no-solus.mjs` | Grava orçamento e compara campo a campo com os 595 que o próprio Solus gravou |
 | `src/ferramentas/t-cadastros-no-solus.mjs` | O mesmo para produto novo (nota) e cliente novo (CNPJ) |
+| `src/ferramentas/t-ultima-compra.mjs` | A nota do Plugin vira "última compra" na tela de produto do Solus (e o desfazer apaga) |
 
 ## O que aprendi do banco do Solus (importante, custou trabalho descobrir)
 
@@ -201,6 +202,15 @@ Testado numa pasta de mentira: `dados` intacta e 110 arquivos atualizados.
 - `PEDIDOS.CUSTOVENDA` = `"-00-custo-00-lucro-00-margem%"` com PONTO decimal.
 - `PEDIDOS` não tem chave única: número repetido entra sem erro nenhum.
 - `CLIENTES.TIPOCLIENTE` = JURIDICA/FISICA. `CLIENTES.TIPO` é outra coisa ("", "FINAL", "MEI").
+- **O Solus.exe está neste PC** (`C:/Solus/Solussis/Solus.exe`). Os textos das telas e as
+  consultas delas dá para ler de dentro do arquivo, sem abrir o programa — foi assim
+  que se descobriu o que a tela de produto mostra.
+- **Entrada de nota no Solus grava a "última compra" em 4 lugares**: `FORNEPRODUTO` (aba
+  "Fornecedores do Produto": CODIGO = fornecedor, NOME, BARRA = barras do produto, CUSTO,
+  NOTA, DATA = **emissão** da nota, MARCA = a mesma data em texto); `ALTERAPRECO` (DATA do
+  dia sem hora, USUARIO, PVA → PVN, BARRAS, PRODUTO = nome) — também em troca manual de
+  preço; `PRODUTO.UPRECOCAIXA` = dia do lançamento ("Data Alteração Preço Vista"; o nome
+  engana, é data); `PRODUTO.ULTIMACOMPRA` = data de **emissão** da nota, não o dia.
 
 ## A IA: hoje e o ChatGPT (OpenAI)
 
@@ -720,7 +730,21 @@ contra os 595 orçamentos dele, e pela tela no `t-navegador`: 89/89). Junto fora
 Mesmo problema corrigido no **produto novo** da nota (ISS, IPI, TRIBORIGEM... vazios) e
 no **cliente novo** do CNPJ (LIMITE vazio, e JURIDICA/FISICA ia no campo errado).
 
+### 21. Nota do Plugin vira "última compra" no Solus (07/10/2026)
+Pedido do Igor: o cadastro de produto do Solus mostra a última nota, e a nota lançada pelo
+Plugin não aparecia lá. Agora `aplicarNota` recebe o número e a data da nota e grava os
+mesmos 4 lugares que o Solus (ver "O que aprendi"): linha na aba **Fornecedores do
+Produto** (só se o fornecedor estiver cadastrado no Solus — ele sempre tem código),
+linha no **histórico de preço** (inclusive do repetido que teve o preço igualado),
+**Data Alteração Preço** = hoje e **Última compra** = emissão da nota (antes ia a data de
+hoje). Data da foto que não existe, no futuro ou com mais de 400 dias vira hoje. O
+**desfazer** apaga essas linhas e devolve as datas (antes nem a ULTIMACOMPRA voltava). O
+histórico do Plugin mostra "última compra no Solus: nota X de dd/mm". Provado em
+`t-ultima-compra.mjs` e `t-navegador` (89/89). ENTRADA/CENTRADA continuam sem mexer.
+
 ### Pendente
+- **Na loja: lançar uma nota pelo Plugin e abrir o produto no Solus** (aba Fornecedores
+  do Produto e Data Alteração Preço) para ver a nota nova lá.
 - **Na loja: gravar um orçamento e abrir no Solus** para confirmar o conserto. Os
   orçamentos gravados ANTES do conserto continuam sem abrir (refazer ou apagar).
 - **Primeiro teste na loja (21-22/09/2026)**: a nota entrou, mas os produtos novos não

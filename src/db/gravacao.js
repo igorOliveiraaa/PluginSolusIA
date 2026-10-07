@@ -32,18 +32,176 @@ function dataSolus(data = new Date()) {
   return dd + '/' + mm + '/' + data.getFullYear();
 }
 
+// ---------------------------------------------------------------------------
+// A ULTIMA COMPRA na tela de produto do Solus.
+// Quando a nota entra pelo proprio Solus, ele grava (conferido no banco e nas
+// telas de dentro do Solus.exe):
+//  - aba "Fornecedores do Produto" (FORNEPRODUTO): fornecedor, custo, NUMERO e
+//    data da nota - uma linha por compra, e o historico de notas do produto;
+//  - historico de preco (ALTERAPRECO): dia, usuario, preco antes -> depois
+//    (mesmo quando o preco nao muda);
+//  - "Data Alteracao Preco Vista" (PRODUTO.UPRECOCAIXA): o dia em que entrou;
+//  - "Ultima compra" (PRODUTO.ULTIMACOMPRA): a data de EMISSAO da nota
+//    (587 de 600 produtos), e nao o dia do lancamento.
+// Sem isso, o produto atualizado pelo Plugin continuava mostrando a nota velha.
+// ---------------------------------------------------------------------------
+
+const UM_DIA = 24 * 60 * 60 * 1000;
+
+/** Data de emissao da nota ("2025-08-18" do XML ou "18/08/2025" da foto). */
+export function dataDaNota(texto, hoje) {
+  const t = String(texto || '').trim();
+  let ano;
+  let mes;
+  let dia;
+  let partes = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (partes) [, ano, mes, dia] = partes.map(Number);
+  else if ((partes = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/))) {
+    [, dia, mes, ano] = partes.map(Number);
+    if (ano < 100) ano += 2000;
+  }
+  const data = ano ? new Date(ano, mes - 1, dia) : null;
+  // data que nao existe (31/02), no futuro ou de mais de um ano atras e leitura
+  // errada da foto: fica o dia de hoje, que e quando a mercadoria entrou
+  if (!data || data.getDate() !== dia || data > hoje || hoje - data > 400 * UM_DIA) return hoje;
+  return data;
+}
+
+/** Tudo da nota que vai para o historico do produto, montado uma vez so. */
+async function prepararCompra({ nota, operador, doFornecedor }) {
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const emissao = dataDaNota(nota?.emissao, hoje);
+  const forneproduto = (await estruturaDe('FORNEPRODUTO')).nomes;
+  const alterapreco = (await estruturaDe('ALTERAPRECO')).nomes;
+  return {
+    hoje,
+    emissao,
+    hojeTexto: dataSolus(hoje),
+    emissaoTexto: dataSolus(emissao),
+    // o Solus guarda "6680032": so os numeros, sem zero na frente
+    numeroNota: String(nota?.numero || '').replace(/\D/g, '').replace(/^0+/, '').slice(0, 10),
+    usuario: String(operador || '').trim().slice(0, 10),
+    fornecedor: doFornecedor,
+    forneproduto: forneproduto.size ? forneproduto : null,
+    alterapreco: alterapreco.size ? alterapreco : null,
+  };
+}
+
+const paraISO = (data) => `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`;
+const doISO = (texto) => {
+  const [ano, mes, dia] = String(texto).split('-').map(Number);
+  return new Date(ano, mes - 1, dia);
+};
+
+async function inserirNasColunas(executar, tabela, colunas, valores) {
+  const campos = Object.keys(valores).filter((c) => valores[c] !== undefined && colunas.has(c));
+  await executar(
+    `INSERT INTO ${tabela} (${campos.join(', ')}) VALUES (${campos.map(() => '?').join(', ')})`,
+    campos.map((c) => valores[c])
+  );
+}
+
+/**
+ * Registra a compra (ou so a troca de preco) no historico do produto no Solus.
+ * Devolve o que gravou, para o desfazer apagar exatamente essas linhas.
+ * Falhar aqui nao derruba a nota: estoque, custo e preco sao o que importa.
+ */
+async function registrarCompraNoSolus(executar, compra, { codigo, custo, vendaAntes, vendaDepois, soPreco = false }) {
+  if (!compra || !codigo) return null;
+  try {
+    const linha = (await executar(
+      `SELECT FIRST 1 BARRAS, ${campoTexto('DESCRICAO', 70)} FROM PRODUTO WHERE TRIM(CODIGO) = ?`, [codigo]))[0];
+    if (!linha) return null;
+    // a mesma chave que a venda e a entrada do Solus usam: o barras como esta gravado
+    const barras = (String(linha.BARRAS ?? '').trim() || String(codigo)).slice(0, 20);
+    const feito = {};
+
+    if (!soPreco && compra.forneproduto && compra.fornecedor?.codigo) {
+      const linhaFornecedor = {
+        CODIGO: String(compra.fornecedor.codigo).trim().slice(0, 6),
+        BARRA: barras,
+        CUSTO: paraTextoBR(custo),
+        NOTA: compra.numeroNota,
+      };
+      await inserirNasColunas(executar, 'FORNEPRODUTO', compra.forneproduto, {
+        ...linhaFornecedor,
+        NOME: gravarTexto(String(compra.fornecedor.nome || '').slice(0, 50)),
+        DATA: compra.emissao,
+        MARCA: compra.emissaoTexto,       // o Solus repete a data aqui, como texto
+      });
+      feito.forneproduto = { ...linhaFornecedor, DATA: paraISO(compra.emissao) };
+    }
+
+    if (compra.alterapreco) {
+      const linhaPreco = {
+        BARRAS: barras,
+        USUARIO: compra.usuario,
+        PVA: paraTextoBR(vendaAntes || 0),
+        PVN: paraTextoBR(vendaDepois || 0),
+      };
+      await inserirNasColunas(executar, 'ALTERAPRECO', compra.alterapreco, {
+        ...linhaPreco,
+        DATA: compra.hoje,
+        PRODUTO: Buffer.isBuffer(linha.DESCRICAO) ? linha.DESCRICAO : gravarTexto(lerTexto(linha.DESCRICAO)),
+      });
+      feito.alterapreco = { ...linhaPreco, DATA: paraISO(compra.hoje) };
+    }
+
+    if (feito.forneproduto) {
+      feito.nota = compra.numeroNota;
+      feito.emissao = compra.emissaoTexto;
+    }
+    return Object.keys(feito).length ? feito : null;
+  } catch (falha) {
+    console.error('[historico do produto no Solus]', falha.message);
+    return null;
+  }
+}
+
+/** Apaga do historico do Solus as linhas que o Plugin gravou (uma de cada). */
+async function desfazerCompraNoSolus(executar, feito) {
+  if (!feito) return;
+  try {
+    const f = feito.forneproduto;
+    if (f) {
+      await executar(
+        `DELETE FROM FORNEPRODUTO WHERE TRIM(CODIGO) = ? AND TRIM(BARRA) = ? AND COALESCE(TRIM(NOTA), '') = ?
+           AND CUSTO = ? AND DATA = ? ROWS 1`,
+        [f.CODIGO, f.BARRA, f.NOTA, f.CUSTO, doISO(f.DATA)]);
+    }
+    const a = feito.alterapreco;
+    if (a) {
+      await executar(
+        `DELETE FROM ALTERAPRECO WHERE TRIM(BARRAS) = ? AND COALESCE(TRIM(USUARIO), '') = ?
+           AND PVA = ? AND PVN = ? AND DATA = ? ROWS 1`,
+        [a.BARRAS, a.USUARIO, a.PVA, a.PVN, doISO(a.DATA)]);
+    }
+  } catch { /* banco sem essas tabelas: nada a desfazer */ }
+}
+
+/** Valores atuais de alguns campos de texto do produto (para o desfazer). */
+async function lerCampos(executar, codigo, campos) {
+  if (!campos.length) return {};
+  const linha = (await executar(
+    `SELECT ${campos.join(', ')} FROM PRODUTO WHERE TRIM(CODIGO) = ?`, [codigo]))[0] || {};
+  return Object.fromEntries(campos.map((c) => [c, linha[c] ?? null]));
+}
+
 /**
  * Aplica uma nota inteira. `itens` sao os itens ja conferidos na tela.
  * Cada item precisa de: acao ('atualizar' | 'criar' | 'ignorar'),
  * quantidadeUnidades, custoUnitario, precoVenda e (quando atualizar) o produto.
  */
-export async function aplicarNota({ itens, atualizarEstoque = true, fornecedor = null }) {
+export async function aplicarNota({ itens, atualizarEstoque = true, fornecedor = null, nota = null, operador = '' }) {
   const estrutura = await estruturaDe('PRODUTO');
   const tamanhos = estrutura.tamanhos;
   // o fornecedor da nota no cadastro do Solus (codigo + nome), quando foi achado
   const doFornecedor = fornecedor?.codigoNoSolus
     ? { codigo: String(fornecedor.codigoNoSolus), nome: String(fornecedor.nomeNoSolus || fornecedor.nome || '') }
     : null;
+  // numero e data da nota, para a "ultima compra" da tela de produto do Solus
+  const compra = await prepararCompra({ nota, operador, doFornecedor });
   const colunas = estrutura.nomes;
   // CST, IBS/CBS, "acessa valores"... que o produto precisa ter para vender com nota
   const camposFiscais = camposFiscaisDoBanco(estrutura);
@@ -90,8 +248,11 @@ export async function aplicarNota({ itens, atualizarEstoque = true, fornecedor =
       }
 
       if (item.acao === 'criar') {
-        const criado = await criarProduto(executar, colunas, item, camposFiscais, { doFornecedor, tamanhos });
+        const criado = await criarProduto(executar, colunas, item, camposFiscais, { doFornecedor, tamanhos, compra });
         criado.vinculoCriado = await vincularAoFornecedor(executar, item, criado, doFornecedor);
+        criado.compraNoSolus = await registrarCompraNoSolus(executar, compra, {
+          codigo: criado.codigo, custo: criado.depois.custo, vendaAntes: 0, vendaDepois: criado.depois.venda,
+        });
         aplicados.push(criado);
 
         // cadastrou o novo E mandou desativar os repetidos velhos: e o caso do
@@ -110,8 +271,17 @@ export async function aplicarNota({ itens, atualizarEstoque = true, fornecedor =
           camposFiscais,
           doFornecedor,
           tamanhos,
+          compra,
         });
         atualizado.vinculoCriado = await vincularAoFornecedor(executar, item, atualizado, doFornecedor);
+        if (atualizado.acao === 'atualizado') {
+          atualizado.compraNoSolus = await registrarCompraNoSolus(executar, compra, {
+            codigo: atualizado.codigo,
+            custo: atualizado.depois.custo,
+            vendaAntes: atualizado.vendaAntes,
+            vendaDepois: atualizado.vendaDepois,
+          });
+        }
         aplicados.push(atualizado);
 
         // Produtos repetidos (mesmo nome ou mesmo codigo de barras).
@@ -128,7 +298,7 @@ export async function aplicarNota({ itens, atualizarEstoque = true, fornecedor =
               aplicados.push(await desativarProduto(executar, colunas, irmao));
             }
           } else if (item.igualarIrmaos) {
-            aplicados.push(await igualarPrecoDoIrmao(executar, colunas, irmao, item.precoVenda));
+            aplicados.push(await igualarPrecoDoIrmao(executar, colunas, irmao, item.precoVenda, compra));
           }
         }
       }
@@ -159,8 +329,12 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
     PRECOVENDA: vendaNova,
     PV: paraTextoBR(vendaNova),
     MARGEM: paraTextoBR(margemNova),
-    ULTIMACOMPRA: dataSolus(),
+    // "Ultima compra" = data de EMISSAO da nota; "Data Alteracao Preco" = hoje
+    ULTIMACOMPRA: opcoes.compra ? opcoes.compra.emissaoTexto : dataSolus(),
+    UPRECOCAIXA: opcoes.compra ? opcoes.compra.hojeTexto : undefined,
   };
+  const datasAntes = await lerCampos(executar, codigo,
+    ['ULTIMACOMPRA', 'UPRECOCAIXA'].filter((c) => colunas.has(c) && valores[c] !== undefined));
 
   if (opcoes.atualizarEstoque) {
     // 2 casas: e o formato que o Solus da loja usa ("51,00")
@@ -203,6 +377,8 @@ async function atualizarProduto(executar, colunas, item, opcoes) {
     UPRECOCUSTO: anterior.custoAnterior,
     UPC: paraTextoBR(anterior.custoAnterior),
     MARGEM: paraTextoBR(anterior.margemAtual),
+    // antes o desfazer nao devolvia a data da ultima compra
+    ...datasAntes,
   };
   if (opcoes.usaEstoqueEmpresa) {
     antes[opcoes.campoEstoqueEmpresa] = paraTextoBR(anterior.estoque, 2);
@@ -379,17 +555,22 @@ async function fiscalQueFalta(executar, codigo, campos) {
  * Mexe SOMENTE em preco de venda e margem. Nao toca em estoque nem em custo,
  * porque cada cadastro tem o seu proprio historico de compra.
  */
-async function igualarPrecoDoIrmao(executar, colunas, irmao, precoVenda) {
+async function igualarPrecoDoIrmao(executar, colunas, irmao, precoVenda, compra = null) {
   const venda = Number(precoVenda || 0);
   if (!venda || !irmao?.codigo) return { codigo: irmao?.codigo, semAlteracao: true };
 
   const margem = irmao.custoAtual > 0 ? ((venda - irmao.custoAtual) / irmao.custoAtual) * 100 : 0;
+  const precoMudou = Math.abs((irmao.vendaAtual || 0) - (venda || 0)) >= 0.005;
 
   const valores = {
     PRECOVENDA: venda,
     PV: paraTextoBR(venda),
     MARGEM: paraTextoBR(margem),
+    // troca de preco: o Solus marca a "Data Alteracao Preco" e guarda no historico
+    UPRECOCAIXA: compra && precoMudou ? compra.hojeTexto : undefined,
   };
+  const datasAntes = await lerCampos(executar, irmao.codigo,
+    ['UPRECOCAIXA'].filter((c) => colunas.has(c) && valores[c] !== undefined));
 
   const { partes, params } = montarAtribuicoes(colunas, valores);
   if (!partes.length) return { codigo: irmao.codigo, semAlteracao: true };
@@ -398,6 +579,11 @@ async function igualarPrecoDoIrmao(executar, colunas, irmao, precoVenda) {
     'UPDATE PRODUTO SET ' + partes.join(', ') + ' WHERE TRIM(CODIGO) = ?',
     [...params, irmao.codigo]
   );
+  const compraNoSolus = precoMudou
+    ? await registrarCompraNoSolus(executar, compra, {
+      codigo: irmao.codigo, vendaAntes: irmao.vendaAtual, vendaDepois: venda, soPreco: true,
+    })
+    : null;
 
   return {
     acao: 'preco-igualado',
@@ -405,11 +591,13 @@ async function igualarPrecoDoIrmao(executar, colunas, irmao, precoVenda) {
     descricao: irmao.descricao,
     vendaAntes: irmao.vendaAtual,
     vendaDepois: venda,
-    precoMudou: Math.abs((irmao.vendaAtual || 0) - (venda || 0)) >= 0.005,
+    precoMudou,
+    compraNoSolus,
     antes: {
       PRECOVENDA: irmao.vendaAtual,
       PV: paraTextoBR(irmao.vendaAtual),
       MARGEM: paraTextoBR(irmao.margemAtual),
+      ...datasAntes,
     },
     antesValores: { estoque: irmao.estoque, custo: irmao.custoAtual, venda: irmao.vendaAtual },
     depois: { venda, estoque: irmao.estoque, custo: irmao.custoAtual },
@@ -515,7 +703,9 @@ async function criarProduto(executar, colunas, item, camposFiscais = [], opcoes 
     NOMEFOR: opcoes.doFornecedor?.nome ? gravarTexto(String(opcoes.doFornecedor.nome).slice(0, 50)) : undefined,
     // STATUS fica vazio de proposito: no Solus, produto ativo tem STATUS vazio
     // e 'CANCELADO' e o que marca produto desativado.
-    ULTIMACOMPRA: dataSolus(),
+    // "Ultima compra" = data de EMISSAO da nota; "Data Alteracao Preco" = hoje
+    ULTIMACOMPRA: opcoes.compra ? opcoes.compra.emissaoTexto : dataSolus(),
+    UPRECOCAIXA: opcoes.compra ? opcoes.compra.hojeTexto : undefined,
   };
 
   const campos = [];
@@ -578,6 +768,8 @@ export async function desfazer(registros) {
     for (const registro of registros) {
       // o vinculo 'codigo do fornecedor -> nosso produto' criado pela nota
       await desfazerVinculo(executar, registro.vinculoCriado);
+      // e a linha da nota na aba "Fornecedores do Produto" e no historico de preco
+      await desfazerCompraNoSolus(executar, registro.compraNoSolus);
 
       if (registro.acao === 'criado') {
         await executar('DELETE FROM PRODUTO WHERE TRIM(CODIGO) = ?', [registro.codigo]);

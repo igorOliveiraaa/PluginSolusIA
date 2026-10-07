@@ -112,7 +112,7 @@
   {
     "item": "17. o lançamento entrou no histórico",
     "ok": true,
-    "detalhe": "20261005125147-rvbs"
+    "detalhe": "20261007155532-fpdo"
   },
   {
     "item": "17. avisa quantos itens não entraram",
@@ -167,7 +167,7 @@
   {
     "item": "19. mesma nota de novo: avisa que já foi lançada",
     "ok": true,
-    "detalhe": "Atenção: essa nota já foi lançada em 05/10/2026, 09:51:47. Se gravar de novo, o estoque vai somar duas vezes."
+    "detalhe": "Atenção: essa nota já foi lançada em 07/10/2026, 12:55:32. Se gravar de novo, o estoque vai somar duas vezes."
   },
   {
     "item": "22. gravar com tudo \"não entrar\" é barrado",
@@ -182,7 +182,7 @@
   {
     "item": "22. tentativa com erro aparece no histórico",
     "ok": true,
-    "detalhe": "9 em vermelho"
+    "detalhe": "10 em vermelho"
   },
   {
     "item": "23. desfazer marca como desfeita",
@@ -272,7 +272,7 @@
   {
     "item": "31. gravou o orçamento no Solus",
     "ok": true,
-    "detalhe": "Orçamento nº 156390 gravado no Solus."
+    "detalhe": "Orçamento nº 156391 gravado no Solus."
   },
   {
     "item": "E. Orçamento: PDF, Excel e gravar: nenhum erro no console do navegador",
@@ -292,7 +292,7 @@
   {
     "item": "35. \"Já resolvi\" tira a tarefa da lista",
     "ok": true,
-    "detalhe": "enviar-orcamento-156390"
+    "detalhe": "enviar-orcamento-156391"
   },
   {
     "item": "G. Tarefas: nenhum erro no console do navegador",
@@ -302,7 +302,7 @@
   {
     "item": "31. orçamento de teste apagado do Solus",
     "ok": true,
-    "detalhe": "nº 156390"
+    "detalhe": "nº 156391"
   },
   {
     "item": "37. ajustes carregam os valores",
@@ -347,7 +347,7 @@
   {
     "item": "4. pergunta responde com número",
     "ok": true,
-    "detalhe": "Tem 50 produtos com estoque negativo.\n\nSe quiser, eu posso te listar os mais críticos ou f"
+    "detalhe": "Tem pelo menos 20 produtos com estoque negativo.\n\nOs 20 primeiros que o sistema trouxe for"
   },
   {
     "item": "6. \"Planilha\" do resultado funciona sem erro",
@@ -357,7 +357,7 @@
   {
     "item": "5. continuação entende o assunto anterior",
     "ok": true,
-    "detalhe": "Os 3 primeiros com estoque negativo são:\n\n1. 9521 — ESPONJA DUPLA FACE ESPONFLORA — -1751\n"
+    "detalhe": "Os 3 primeiros são:\n\n1. ESPONJA DUPLA FACE ESPONFLORA — estoque -1751 — venda R$ 0,80\n\n2. "
   },
   {
     "item": "7. \"Nova conversa\" à vista",

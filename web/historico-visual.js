@@ -124,6 +124,9 @@ export function linhaDoRegistro(registro) {
   const marcas = [
     registro.reativado ? '<span class="etiqueta ok">voltou a ser ativo</span>' : '',
     registro.vinculoCriado?.novo ? '<span class="etiqueta">fornecedor ensinado ao Solus</span>' : '',
+    registro.compraNoSolus?.forneproduto
+      ? `<span class="etiqueta">última compra no Solus: ${escapar(
+        registro.compraNoSolus.nota ? `nota ${registro.compraNoSolus.nota} de ` : '')}${escapar(registro.compraNoSolus.emissao || '')}</span>` : '',
     registro.fiscalPreenchido?.length
       ? `<span class="etiqueta">${registro.fiscalPreenchido.length} campos fiscais preenchidos</span>` : '',
     registro.atualizadoPelaNota?.length
