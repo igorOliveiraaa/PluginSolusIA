@@ -40,6 +40,16 @@
     "detalhe": "ESPONJA MULTIUSO TESTE PACOTE C/ 4"
   },
   {
+    "item": "47. fornecedor fora do Solus: a tela pede para cadastrar ou escolher",
+    "ok": true,
+    "detalhe": "Fornecedor não está cadastrado no Solus. Obrigatório para gravar: é ele que aparece na aba \"Fornecedores do Produto\", com o número da nota e o custo."
+  },
+  {
+    "item": "47. o cadastro do fornecedor vem preenchido com o XML",
+    "ok": true,
+    "detalhe": "DISTRIBUIDORA TESTE LTDA"
+  },
+  {
     "item": "C. Nota: ler o XML e conferir: nenhum erro no console do navegador",
     "ok": true,
     "detalhe": ""
@@ -95,6 +105,16 @@
     "detalhe": "item 4"
   },
   {
+    "item": "47. gravar sem fornecedor não segue (nem pergunta)",
+    "ok": true,
+    "detalhe": ""
+  },
+  {
+    "item": "47. \"Cadastrar no Solus\" liga o fornecedor à nota",
+    "ok": true,
+    "detalhe": "FORNECEDOR NO SOLUS DISTRIBUIDORA TESTE LTDA código 426 · 12.345.678/0001-99"
+  },
+  {
     "item": "17. confirmação antes de gravar",
     "ok": true,
     "detalhe": "Gravar 3 itens no Solus?"
@@ -112,7 +132,7 @@
   {
     "item": "17. o lançamento entrou no histórico",
     "ok": true,
-    "detalhe": "20261007155532-fpdo"
+    "detalhe": "20261007183727-80un"
   },
   {
     "item": "17. avisa quantos itens não entraram",
@@ -167,7 +187,7 @@
   {
     "item": "19. mesma nota de novo: avisa que já foi lançada",
     "ok": true,
-    "detalhe": "Atenção: essa nota já foi lançada em 07/10/2026, 12:55:32. Se gravar de novo, o estoque vai somar duas vezes."
+    "detalhe": "Atenção: essa nota já foi lançada em 07/10/2026, 15:37:27. Se gravar de novo, o estoque vai somar duas vezes."
   },
   {
     "item": "22. gravar com tudo \"não entrar\" é barrado",
@@ -182,7 +202,7 @@
   {
     "item": "22. tentativa com erro aparece no histórico",
     "ok": true,
-    "detalhe": "10 em vermelho"
+    "detalhe": "13 em vermelho"
   },
   {
     "item": "23. desfazer marca como desfeita",
@@ -247,7 +267,7 @@
   {
     "item": "29. mudar a quantidade recalcula o total",
     "ok": true,
-    "detalhe": "Total do orçamento R$ 635,85 -> Total do orçamento R$ 578,25"
+    "detalhe": "Total do orçamento R$ 679,05 -> Total do orçamento R$ 621,45"
   },
   {
     "item": "E. Orçamento: mexer nos itens: nenhum erro no console do navegador",
@@ -272,7 +292,7 @@
   {
     "item": "31. gravou o orçamento no Solus",
     "ok": true,
-    "detalhe": "Orçamento nº 156391 gravado no Solus."
+    "detalhe": "Orçamento nº 156394 gravado no Solus."
   },
   {
     "item": "E. Orçamento: PDF, Excel e gravar: nenhum erro no console do navegador",
@@ -292,7 +312,7 @@
   {
     "item": "35. \"Já resolvi\" tira a tarefa da lista",
     "ok": true,
-    "detalhe": "enviar-orcamento-156391"
+    "detalhe": "enviar-orcamento-156394"
   },
   {
     "item": "G. Tarefas: nenhum erro no console do navegador",
@@ -302,7 +322,7 @@
   {
     "item": "31. orçamento de teste apagado do Solus",
     "ok": true,
-    "detalhe": "nº 156391"
+    "detalhe": "nº 156394"
   },
   {
     "item": "37. ajustes carregam os valores",
@@ -347,7 +367,7 @@
   {
     "item": "4. pergunta responde com número",
     "ok": true,
-    "detalhe": "Tem pelo menos 20 produtos com estoque negativo.\n\nOs 20 primeiros que o sistema trouxe for"
+    "detalhe": "Tem 20 produtos com estoque negativo nessa consulta.\n\nOs primeiros que apareceram foram:\n\n"
   },
   {
     "item": "6. \"Planilha\" do resultado funciona sem erro",
@@ -357,7 +377,7 @@
   {
     "item": "5. continuação entende o assunto anterior",
     "ok": true,
-    "detalhe": "Os 3 primeiros são:\n\n1. ESPONJA DUPLA FACE ESPONFLORA — estoque -1751 — venda R$ 0,80\n\n2. "
+    "detalhe": "Os 3 primeiros com estoque negativo são:\n\n1. 9521 – ESPONJA DUPLA FACE ESPONFLORA\n\nEstoque"
   },
   {
     "item": "7. \"Nova conversa\" à vista",

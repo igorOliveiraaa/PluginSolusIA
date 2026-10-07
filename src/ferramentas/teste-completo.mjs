@@ -4,6 +4,7 @@
 import { consultar, paraNumero, campoTexto, lerTexto } from '../db/firebird.js';
 
 import { entrarComoTeste } from './login-teste.mjs';
+import { cadastrarFornecedorDaNota, apagarFornecedorDeTeste } from './fornecedor-de-teste.mjs';
 
 const chamar = await entrarComoTeste();
 const CODIGOS = ['11673', '7519', '10877', '11015'];   // produtos usados na nota de teste
@@ -63,6 +64,9 @@ const decisoes = itens.map((item) => ({
 }));
 
 // ---- 3. gravar -----------------------------------------------------------
+// o fornecedor e obrigatorio antes de gravar (o da nota de exemplo nao existe no Solus)
+await apagarFornecedorDeTeste();
+await cadastrarFornecedorDaNota(chamar, leitura);
 const gravacao = await (await chamar('/api/aplicar', {
   method: 'POST',
   body: JSON.stringify({ id: leitura.id, decisoes, operador: 'TESTE' }),
@@ -135,5 +139,6 @@ const removido = Number(semNovo[0].T) === 0;
 console.log(`  ${removido ? 'OK  ' : 'FALHOU'} produto criado foi removido no desfazer`);
 tudoCerto &= removido;
 
+await apagarFornecedorDeTeste();
 console.log('\n' + (tudoCerto ? '>>> TUDO CERTO' : '>>> TEM COISA ERRADA ACIMA'));
 process.exit(tudoCerto ? 0 : 1);

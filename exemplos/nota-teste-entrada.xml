@@ -5,7 +5,9 @@
 <ide><cUF>35</cUF><natOp>VENDA MERCADORIA</natOp><mod>55</mod><serie>1</serie><nNF>1234</nNF>
 <dhEmi>2025-09-10T10:15:00-03:00</dhEmi><tpNF>1</tpNF></ide>
 <emit><CNPJ>12345678000199</CNPJ><xNome>DISTRIBUIDORA TESTE LTDA</xNome>
-<xFant>DIST TESTE</xFant><enderEmit><UF>SP</UF><xMun>BAURU</xMun></enderEmit></emit>
+<xFant>DIST TESTE</xFant><enderEmit><xLgr>RUA DAS INDUSTRIAS</xLgr><nro>1-50</nro>
+<xBairro>DISTRITO INDUSTRIAL</xBairro><cMun>3506003</cMun><xMun>BAURU</xMun><UF>SP</UF>
+<CEP>17034000</CEP><fone>1432260000</fone></enderEmit><IE>209123456110</IE></emit>
 <dest><CNPJ>98765432000188</CNPJ><xNome>LOJA CLIENTE</xNome></dest>
 
 <!-- Item 1: item simples, ja em unidade. Custo sobe de 2,25 para 2,58 (+14%) -->

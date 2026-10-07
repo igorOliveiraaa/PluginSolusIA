@@ -2373,3 +2373,31 @@ kbd {
 
 .endereco-fixo ol { margin: 6px 0 0; padding-left: 20px; }
 .endereco-fixo li { margin-bottom: 4px; }
+
+/* ---- Fornecedor da nota (obrigatorio antes de gravar) ---- */
+.fornecedor-nota:empty { display: none; }
+.fornecedor-linha { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fornecedor-falta { border-left: 4px solid var(--aviso); }
+.fornecedor-abas { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.fornecedor-abas .botao.ativo { box-shadow: 0 0 0 2px var(--principal) inset; }
+.lista-fornecedores { display: grid; gap: 8px; margin: 8px 0; }
+.opcao-fornecedor {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--borda); border-radius: var(--raio-p);
+  background: var(--vidro);
+}
+.opcao-fornecedor .botao { flex: 0 0 auto; }
+@media (max-width: 560px) {
+  .fornecedor-nota .linha-dupla { flex-direction: column; gap: 0; }
+  .opcao-fornecedor { flex-direction: column; align-items: stretch; }
+}
+.link-acao {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font: inherit; font-weight: 600; color: var(--principal); text-decoration: underline;
+}
+.linha-busca { align-items: flex-end; }
+.linha-busca > .botao { flex: 0 0 auto; margin-bottom: 14px; }
+@media (max-width: 560px) {
+  .fornecedor-nota .linha-busca { align-items: stretch; }
+  .fornecedor-nota .linha-busca > .botao { margin: -4px 0 10px; }
+}

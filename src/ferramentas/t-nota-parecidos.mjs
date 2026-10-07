@@ -22,6 +22,7 @@ import path from 'node:path';
 import { entrarComoTeste } from './login-teste.mjs';
 import { pastaDaLoja } from '../config.js';
 import { consultar, campoTexto, lerTexto } from '../db/firebird.js';
+import { apagarFornecedorDeTeste } from './fornecedor-de-teste.mjs';
 
 let falhas = 0;
 const conferir = (titulo, ok, detalhe = '') => {
@@ -71,6 +72,16 @@ if (!leitura.ok) process.exit(1);
 const id = leitura.id;
 const itens = leitura.conferencia.itens;
 conferir('4 itens na nota', itens.length === 4, `${itens.length} itens`);
+
+// o fornecedor da nota de exemplo nao existe no Solus: cadastrar e obrigatorio
+// antes de gravar (o t-fornecedor-nota confere esse passo em detalhe)
+await apagarFornecedorDeTeste();
+const daNota = leitura.conferencia.fornecedor;
+const fornecedor = await json('/api/conferencia/fornecedor/novo', {
+  method: 'POST',
+  body: JSON.stringify({ id, dados: { ...daNota, razaoSocial: daNota.nome } }),
+});
+conferir('fornecedor da nota cadastrado no Solus', fornecedor.ok === true, fornecedor.erro || `codigo ${fornecedor.codigo}`);
 
 const novo = itens.find((i) => i.acao === 'criar');
 conferir('o produto que nao existe vem marcado para CADASTRAR', Boolean(novo),
@@ -250,6 +261,7 @@ for (const idHistorico of criadosNoHistorico) {
   try { fs.unlinkSync(arquivo); } catch { /* ja nao existe */ }
 }
 console.log(`  (${criadosNoHistorico.length} entradas de teste apagadas do historico)`);
+await apagarFornecedorDeTeste();
 
 console.log(falhas ? `\n>>> ${falhas} FALHA(S)` : '\n>>> TUDO CERTO');
 process.exit(falhas ? 1 : 0);

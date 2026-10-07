@@ -245,6 +245,16 @@ export function lerXmlNfe(conteudoXml) {
       nome: texto(emit.xNome),
       fantasia: texto(emit.xFant),
       uf: texto(achar(emit, 'UF')),
+      // o XML ja traz o cadastro inteiro do fornecedor: se ele nao estiver no
+      // Solus, da para cadastrar com um clique, sem depender da Receita
+      inscricaoEstadual: texto(emit.IE),
+      rua: texto(emit.enderEmit?.xLgr),
+      numero: texto(emit.enderEmit?.nro),
+      complemento: texto(emit.enderEmit?.xCpl),
+      bairro: texto(emit.enderEmit?.xBairro),
+      cidade: texto(emit.enderEmit?.xMun),
+      cep: texto(emit.enderEmit?.CEP),
+      telefone: texto(emit.enderEmit?.fone),
     },
     destinatario: {
       cnpj: texto(dest.CNPJ) || texto(dest.CPF),

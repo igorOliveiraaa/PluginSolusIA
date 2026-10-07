@@ -16,6 +16,7 @@ import path from 'node:path';
 import { abrirNavegador } from './navegador.mjs';
 import { credenciaisDeTeste } from './credenciais-de-teste.mjs';
 import { consultar } from '../db/firebird.js';
+import { apagarFornecedorDeTeste } from './fornecedor-de-teste.mjs';
 
 const S = 'http://localhost:3535';
 const resultado = [];                 // [{ item, ok, detalhe }]
@@ -57,6 +58,8 @@ const texto = (seletor) => nav.avaliar(`document.querySelector(${JSON.stringify(
 const [antes] = await consultar(
   "SELECT COUNT(*) AS PRODUTOS, SUM(CASE WHEN DESCRICAO CONTAINING 'DESATIVADO' THEN 1 ELSE 0 END) AS MARCADOS FROM PRODUTO"
 );
+// o fornecedor da nota de exemplo NAO pode existir: a tela tem que pedir o cadastro
+await apagarFornecedorDeTeste();
 
 // ===========================================================================
 await secao('A. Entrar', async () => {
@@ -100,6 +103,12 @@ await secao('C. Nota: ler o XML e conferir', async () => {
   marcar('14. produto novo tem o campo do nome', novos >= 1, `${novos} campo(s)`);
   const nomeNovo = await nav.avaliar("document.querySelector('[data-nome]')?.value || ''");
   marcar('14. nome do produto novo preenchido', nomeNovo.length > 3, nomeNovo);
+
+  const cartao = await texto('#fornecedor-nota');
+  marcar('47. fornecedor fora do Solus: a tela pede para cadastrar ou escolher',
+    /não está cadastrado no Solus/i.test(cartao), cartao.split('\n')[0]);
+  const daNota = await nav.avaliar("document.querySelector('#forn-nome')?.value || ''");
+  marcar('47. o cadastro do fornecedor vem preenchido com o XML', /DISTRIBUIDORA TESTE/.test(daNota), daNota);
   await nav.foto('c-conferencia');
 });
 
@@ -208,6 +217,21 @@ await secao('C. Nota: gravar e conferir o resultado', async () => {
     await nav.clicar(`[data-ignorar="${ignorar}"]`);
     marcar('15. "não entrar" marca o item', true, `item ${ignorar + 1}`);
   }
+
+  // sem o fornecedor no Solus o botão explica o que falta e NÃO grava
+  const dialogosAntes = nav.dialogos.length;
+  await nav.clicar('#btn-gravar');
+  await nav.esperar(600);
+  marcar('47. gravar sem fornecedor não segue (nem pergunta)',
+    await telaAtiva() === 'tela-conferencia' && nav.dialogos.length === dialogosAntes);
+
+  // cadastra o fornecedor pela tela, como o balcão vai fazer
+  await nav.clicar('#forn-btn-cadastrar');
+  await nav.esperarAte("document.querySelector('#fornecedor-nota')?.classList.contains('fornecedor-ok')",
+    { tempo: 20000, descricao: 'fornecedor cadastrado' });
+  marcar('47. "Cadastrar no Solus" liga o fornecedor à nota',
+    /fornecedor no Solus/i.test(await texto('#fornecedor-nota')), (await texto('#fornecedor-nota')).replace(/\n/g, ' '));
+  await nav.foto('c-fornecedor');
 
   // o lançamento mais novo ANTES de gravar: o teste só desfaz o que ele criou
   const ultimoAntes = await nav.avaliar("fetch('/api/historico?limite=1').then((r) => r.json()).then((d) => d.historico[0]?.id || '')");
@@ -570,6 +594,7 @@ await secao('I. Celular (390px)', async () => {
 });
 
 // ===========================================================================
+await apagarFornecedorDeTeste();
 const falhas = resultado.filter((r) => !r.ok);
 fs.writeFileSync(path.join(process.env.PASTA_FOTOS || '.', 'resultado-navegador.json'),
   JSON.stringify(resultado, null, 2));

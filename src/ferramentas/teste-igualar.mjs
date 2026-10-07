@@ -2,6 +2,7 @@
 import { consultar, paraNumero } from '../db/firebird.js';
 
 import { entrarComoTeste } from './login-teste.mjs';
+import { cadastrarFornecedorDaNota, apagarFornecedorDeTeste } from './fornecedor-de-teste.mjs';
 
 const chamar = await entrarComoTeste();
 const ler = async (cods) => {
@@ -29,6 +30,9 @@ const decisoes = leitura.conferencia.itens.map((item) => ({
   desativarIrmaos: [],
 }));
 
+// o fornecedor e obrigatorio antes de gravar (o da nota de exemplo nao existe no Solus)
+await apagarFornecedorDeTeste();
+await cadastrarFornecedorDaNota(chamar, leitura);
 const gravou = await (await chamar('/api/aplicar', {
   method: 'POST',
   body: JSON.stringify({ id: leitura.id, decisoes, operador: 'TESTE-IGUALAR' }),
@@ -49,4 +53,5 @@ const final = await ler(['10877', '11015']);
 const voltou = Math.abs(final['11015'].venda - antes['11015'].venda) < 0.015
   && Math.abs(final['10877'].venda - antes['10877'].venda) < 0.015;
 console.log(voltou ? 'OK   desfazer restaurou os dois' : 'FALHOU desfazer nao restaurou');
+await apagarFornecedorDeTeste();
 process.exit(igualou && estoqueIntacto && voltou ? 0 : 1);

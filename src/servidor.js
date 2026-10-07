@@ -34,6 +34,7 @@ import { rotas as rotasOrcamento } from './rotas-orcamento.js';
 import { rotasAssistente } from './rotas-assistente.js';
 import { rotasVendas } from './rotas-vendas.js';
 import { rotasLojas } from './rotas-lojas.js';
+import { rotasFornecedor } from './rotas-fornecedor.js';
 import { exec } from 'node:child_process';
 import { lojaAtualId } from './loja-atual.js';
 import { exigirLogin, exigirPermissao } from './db/operadores.js';
@@ -348,6 +349,12 @@ app.post('/api/aplicar', exigirLogin, exigirPermissao('mexerProduto'), async (re
     const guardada = conferenciasAbertas.get(id);
     if (!guardada) throw new Error('Essa conferencia expirou. Envie a nota de novo.');
     if (guardada.lojaId !== lojaAtualId()) throw new Error('Essa nota foi lida em outra loja.');
+    // OBRIGATORIO: sem o fornecedor no Solus a nota nao entra na aba "Fornecedores
+    // do Produto". Vem antes de `conferencia = ...` de proposito: isto nao e uma
+    // tentativa que falhou, entao nao vai para o historico.
+    if (!guardada.dados.fornecedor?.codigoNoSolus) {
+      throw new Error('Falta o fornecedor: cadastre ou escolha o fornecedor da nota (no alto da tela) antes de gravar.');
+    }
 
     conferencia = guardada.dados;
 
@@ -729,6 +736,13 @@ app.get('/api/modelos-ia', exigirLogin, async (req, res) => {
 app.use(rotasOrcamento);
 app.use(rotasAssistente);
 app.use(rotasVendas);
+// fornecedor da nota (obrigatorio antes de gravar): escolher ou cadastrar
+app.use(rotasFornecedor((id) => {
+  const guardada = conferenciasAbertas.get(id);
+  if (!guardada) throw new Error('Essa conferencia expirou. Envie a nota de novo.');
+  if (guardada.lojaId !== lojaAtualId()) throw new Error('Essa nota foi lida em outra loja.');
+  return guardada.dados;
+}));
 
 const porta = carregarConfig().servidor?.porta || 3535;
 const portaSegura = Number(porta) + 1;

@@ -151,6 +151,8 @@ const todoJs = daTela.map((a) => fs.readFileSync(a, 'utf8')).join('\n');
 const criadosNoJs = new Set([
   ...[...todoJs.matchAll(/id="([a-zA-Z0-9_-]+)"/g)].map((m) => m[1]),
   ...[...todoJs.matchAll(/\.id\s*=\s*'([a-zA-Z0-9_-]+)'/g)].map((m) => m[1]),
+  // formularios montados com o ajudante campo('id', 'Rotulo', ...)
+  ...[...todoJs.matchAll(/campo\('([a-zA-Z0-9_-]+)'/g)].map((m) => m[1]),
 ]);
 for (const arquivo of daTela) {
   const codigo = fs.readFileSync(arquivo, 'utf8');

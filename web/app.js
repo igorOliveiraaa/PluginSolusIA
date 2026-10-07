@@ -10,6 +10,7 @@ import { mostrarProgressoNoCartao } from './progresso.js';
 import { ligarColar } from './colar.js';
 import { fecharModal } from './efeitos.js';
 import { cartaoDoHistorico, corpoDoDetalhe, prazoEmPalavras } from './historico-visual.js';
+import { desenharFornecedor, fornecedorResolvido } from './fornecedor-nota.js';
 
 const estado = {
   arquivos: [],
@@ -177,6 +178,9 @@ function desenharConferencia(jaAplicada) {
       ${nota.emissao ? 'Emissão: ' + escapar(nota.emissao) + ' · ' : ''}
       Lida ${nota.origem === 'xml' ? 'do XML (valores exatos)' : 'por IA a partir da imagem'}
     </p>`;
+
+  // fornecedor no Solus: obrigatorio antes de gravar (escolher ou cadastrar)
+  desenharFornecedor({ idConferencia: estado.idConferencia, conferencia: nota });
 
   if (jaAplicada) {
     const quando = new Date(jaAplicada.quando).toLocaleString('pt-BR');
@@ -996,6 +1000,13 @@ $('#btn-voltar').addEventListener('click', () => {
 });
 
 $('#btn-gravar').addEventListener('click', async () => {
+  // o botao fica clicavel (no celular botao desabilitado nao explica nada): ao
+  // clicar sem fornecedor, diz o que falta e leva ate la
+  if (!fornecedorResolvido(estado.conferencia)) {
+    avisar('Antes de gravar, cadastre ou escolha o fornecedor da nota (lá em cima).', 'erro');
+    $('#fornecedor-nota').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
   const vaoGravar = estado.decisoes.filter((d) => d.acao !== 'ignorar').length;
   const novos = estado.decisoes.filter((d) => d.acao === 'criar').length;
   const igualados = estado.decisoes.filter((d) => d.igualarIrmaos).length;
